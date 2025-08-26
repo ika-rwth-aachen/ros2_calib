@@ -1,0 +1,71 @@
+name: Create GitHub Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Get tag info
+      id: tag_info
+      run: |
+        echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+    - name: Generate release notes
+      id: release_notes
+      run: |
+        # Get the previous tag
+        PREV_TAG=$(git tag --sort=-version:refname | grep -v "$(echo ${{ steps.tag_info.outputs.tag }})" | head -n 1)
+        
+        # Generate changelog
+        if [ -z "$PREV_TAG" ]; then
+          # First release
+          CHANGELOG=$(git log --pretty=format:"- %s (%h)" --no-merges)
+        else
+          # Compare with previous tag
+          CHANGELOG=$(git log --pretty=format:"- %s (%h)" --no-merges ${PREV_TAG}..${{ steps.tag_info.outputs.tag }})
+        fi
+        
+        # Create release notes
+        cat << EOF > release_notes.md
+        ## What's Changed
+        
+        ${CHANGELOG}
+        
+        **Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${{ steps.tag_info.outputs.tag }}
+        
+        ## Installation
+        
+        Install the latest version from PyPI:
+        \`\`\`bash
+        pip install ros2-calib==${{ steps.tag_info.outputs.version }}
+        \`\`\`
+        
+        Or upgrade if you have it already installed:
+        \`\`\`bash
+        pip install --upgrade ros2-calib
+        \`\`\`
+        EOF
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.tag_info.outputs.tag }}
+        name: Release ${{ steps.tag_info.outputs.tag }}
+        body_path: release_notes.md
+        draft: false
+        prerelease: false
+        generate_release_notes: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
