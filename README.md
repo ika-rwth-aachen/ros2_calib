@@ -5,7 +5,7 @@
 [![ROS 2](https://img.shields.io/badge/ROS_2-mcap-blue.svg)](https://docs.ros.org/en/jazzy/p/rosbag2_storage_mcap/)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![PySide6](https://img.shields.io/badge/PySide6-GUI-orange.svg)](https://pypi.org/project/PySide6/)
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](#)
+[![Publish to PyPI](https://github.com/ika-rwth-aachen/ros2_calib/actions/workflows/publish.yml/badge.svg)](https://github.com/ika-rwth-aachen/ros2_calib/actions/workflows/publish.yml)
 
 ```
           ██████   ██████  ███████ ██████       ██████  █████   ██      ██ ██████  
