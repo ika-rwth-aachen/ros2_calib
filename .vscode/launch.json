@@ -1,0 +1,12 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug: ros2_calib",
+            "type": "python",
+            "request": "launch",
+            "module": "ros2_calib.main",
+            "justMyCode": true
+        }
+    ]
+}

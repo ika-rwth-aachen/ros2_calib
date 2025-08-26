@@ -1,0 +1,61 @@
+[project]
+name = "ros2-calib"
+version = "0.1.0"
+description = "A manual LiDAR-Camera calibration tool for ROS 2"
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Till Beemelmanns", email = "till.beemelmanns@rwth-aachen.de" }]
+maintainers = [{ name = "Till Beemelmanns", email = "till.beemelmanns@rwth-aachen.de" }]
+keywords = ["ros2", "lidar", "camera", "calibration", "robotics", "computer-vision"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "rosbags",
+    "numpy",
+    "PySide6",
+    "opencv-python-headless",
+    "scipy",
+    "NodeGraphQt",
+    "transforms3d",
+    "setuptools"
+]
+
+[project.urls]
+Homepage = "https://github.com/beemelmanns/ros2_calib"
+Repository = "https://github.com/beemelmanns/ros2_calib"
+Issues = "https://github.com/beemelmanns/ros2_calib/issues"
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "build",
+    "twine"
+]
+[project.scripts]
+ros2_calib = "ros2_calib.main:main"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["ros2_calib"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
