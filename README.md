@@ -221,7 +221,7 @@ If you use this tool in your research, please cite:
 @software{ros2_calib,
   title={ros2\_calib: Manual LiDAR-Camera Calibration Tool},
   author={Till Beemelmanns},
-  year={2024},
+  year={2025},
   url={https://github.com/ika-rwth-aachen/ros2_calib}
 }
 ```
