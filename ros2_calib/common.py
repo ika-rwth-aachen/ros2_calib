@@ -74,10 +74,6 @@ class Colors:
 class AppConstants:
     """Application-wide constants."""
 
-    APP_NAME = "ros2_calib"
-    VERSION = "0.1.0"
-    DESCRIPTION = "Manual LiDAR-Camera Calibration Tool"
-
     # Default values
     DEFAULT_POINT_SIZE = 4
     DEFAULT_COLORMAP = "inferno"

@@ -54,7 +54,7 @@ from scipy.spatial import KDTree
 from scipy.spatial.transform import Rotation
 
 from . import calibration
-from .common import Colors, UIStyles
+from .common import AppConstants, Colors, UIStyles
 from .lidar_cleaner import LiDARCleaner
 
 
@@ -163,13 +163,13 @@ class CalibrationWidget(QWidget):
         view_controls_layout.addRow("Image Resolution:", self.image_res_label)
         self.point_size_spinbox = QSpinBox()
         self.point_size_spinbox.setRange(1, 10)
-        self.point_size_spinbox.setValue(4)
+        self.point_size_spinbox.setValue(AppConstants.DEFAULT_POINT_SIZE)
         view_controls_layout.addRow("Point Size:", self.point_size_spinbox)
         self.colormap_combo = QComboBox()
         self.colormap_combo.addItems(
             ["autumn", "jet", "winter", "summer", "spring", "hot", "magma", "inferno", "Spectral", "RdYlGn"]
         )
-        self.colormap_combo.setCurrentText("inferno")
+        self.colormap_combo.setCurrentText(AppConstants.DEFAULT_COLORMAP)
         view_controls_layout.addRow("Colormap:", self.colormap_combo)
         self.colorization_mode_combo = QComboBox()
         self.colorization_mode_combo.addItems(["Intensity", "Distance"])
@@ -251,7 +251,7 @@ class CalibrationWidget(QWidget):
         tuning_layout = QGridLayout(tuning_group)
         self.t_step_spinbox = QDoubleSpinBox()
         self.t_step_spinbox.setRange(0.01, 5.0)
-        self.t_step_spinbox.setValue(1.0)
+        self.t_step_spinbox.setValue(AppConstants.DEFAULT_TRANSLATION_STEP)
         self.t_step_spinbox.setSingleStep(0.1)
         self.t_step_spinbox.setSuffix(" cm")
         self.t_step_spinbox.setButtonSymbols(QDoubleSpinBox.NoButtons)
@@ -260,7 +260,7 @@ class CalibrationWidget(QWidget):
         tuning_layout.addWidget(self.t_step_spinbox, 0, 2, 1, 1)
         self.r_step_spinbox = QDoubleSpinBox()
         self.r_step_spinbox.setRange(0.01, 10.0)
-        self.r_step_spinbox.setValue(0.1)
+        self.r_step_spinbox.setValue(AppConstants.DEFAULT_ROTATION_STEP)
         self.r_step_spinbox.setSingleStep(0.05)
         self.r_step_spinbox.setSuffix(" °")
         self.r_step_spinbox.setButtonSymbols(QDoubleSpinBox.NoButtons)
@@ -756,7 +756,7 @@ class CalibrationWidget(QWidget):
         self.selected_3d_items_map = {}
 
     def run_calibration(self):
-        if len(self.correspondences) < 4:
+        if len(self.correspondences) < AppConstants.MIN_CORRESPONDENCES:
             return
         self.progress_bar.setVisible(True)
         QApplication.processEvents()
