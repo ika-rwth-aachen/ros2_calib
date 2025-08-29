@@ -1326,31 +1326,35 @@ class MainWindow(QMainWindow):
             return [self.camera_frame]
 
     def _sanitize_frame_id(self, frame_id):
-        """Convert frame ID to valid URDF link name by replacing / with _."""
+        """Convert frame ID to valid URDF joint name by replacing / with _ and - with _."""
         return frame_id.replace("/", "_").replace("-", "_")
 
     def display_calibrated_transform(self):
         """Display the calibrated transformation matrix."""
+        # For URDF, we need the inverse transformation T_lidar_camera (parent → child)
+        urdf_transform = np.linalg.inv(self.calibrated_transform)
+
         display_text = f"{self.lidar_frame} → {self.camera_frame}:\n"
         for i in range(4):
-            row_text = "  ".join(f"{self.calibrated_transform[i, j]:8.4f}" for j in range(4))
+            row_text = "  ".join(f"{urdf_transform[i, j]:8.4f}" for j in range(4))
             display_text += f"[{row_text}]\n"
 
         # Add translation and rotation info
         from scipy.spatial.transform import Rotation
 
-        tvec = self.calibrated_transform[:3, 3]
-        rpy = Rotation.from_matrix(self.calibrated_transform[:3, :3]).as_euler("xyz", degrees=False)
-        display_text += f"\nXYZ: [{tvec[0]:.6f}, {tvec[1]:.6f}, {tvec[2]:.6f}]"
-        display_text += f"\nRPY: [{rpy[0]:.6f}, {rpy[1]:.6f}, {rpy[2]:.6f}]"
+        urdf_tvec = urdf_transform[:3, 3]
+        urdf_rpy = Rotation.from_matrix(urdf_transform[:3, :3]).as_euler("xyz", degrees=False)
 
-        # Add URDF snippet - sanitize only the joint name, keep original frame IDs for links
-        joint_name = f"{self._sanitize_frame_id(self.lidar_frame)}_2_{self._sanitize_frame_id(self.camera_frame)}_calibrated"
+        display_text += f"\nXYZ: [{urdf_tvec[0]:.6f}, {urdf_tvec[1]:.6f}, {urdf_tvec[2]:.6f}]"
+        display_text += f"\nRPY: [{urdf_rpy[0]:.6f}, {urdf_rpy[1]:.6f}, {urdf_rpy[2]:.6f}]"
+
+        # Add URDF snippet - use original frame names for joint name
+        joint_name = f"{self.lidar_frame}_2_{self.camera_frame}_calibrated"
         display_text += "\n\nURDF Joint:\n"
         display_text += f'<joint name="{joint_name}" type="fixed">\n'
         display_text += f'  <parent link="{self.lidar_frame}" />\n'
         display_text += f'  <child link="{self.camera_frame}" />\n'
-        display_text += f'  <origin xyz="{tvec[0]:.6f} {tvec[1]:.6f} {tvec[2]:.6f}" rpy="{rpy[0]:.6f} {rpy[1]:.6f} {rpy[2]:.6f}" />\n'
+        display_text += f'  <origin xyz="{urdf_tvec[0]:.6f} {urdf_tvec[1]:.6f} {urdf_tvec[2]:.6f}" rpy="{urdf_rpy[0]:.6f} {urdf_rpy[1]:.6f} {urdf_rpy[2]:.6f}" />\n'
         display_text += "</joint>"
 
         self.calibration_result_display.setPlainText(display_text)
@@ -1369,25 +1373,31 @@ class MainWindow(QMainWindow):
             self.chain_display.setPlainText(f"Chain: {chain_text}")
 
             if target_frame == self.camera_frame:
-                # Direct calibrated transform (LiDAR → Camera Optical)
-                self.display_final_transform(self.calibrated_transform, target_frame)
+                # Direct calibrated transform - need inverse for URDF (parent → child)
+                # calibrated_transform is T_camera_lidar, but URDF needs T_lidar_camera
+                urdf_transform = np.linalg.inv(self.calibrated_transform)
+                self.display_final_transform(urdf_transform, target_frame)
             else:
-                # Calculate transform: LiDAR → Target
-                # This is: (LiDAR → Camera Optical) × (Camera Optical → Target)^-1
-                # Because we want LiDAR → Target, but we go through camera optical
+                # Calculate transform: LiDAR → Target for URDF (parent → child)
+                # calibrated_transform is T_camera_lidar, need T_lidar_camera first
+                # Then: T_lidar_target = T_lidar_camera × T_camera_target
 
-                # Find transform from target to camera optical frame
-                target_to_optical = self.find_transform_path(target_frame, self.camera_frame)
-                if target_to_optical is not None:
-                    # Final transform: LiDAR → Target = LiDAR → Camera Optical × (Target → Camera Optical)^-1
-                    target_to_optical_inv = np.linalg.inv(target_to_optical)
-                    final_transform = np.dot(self.calibrated_transform, target_to_optical_inv)
+                # First get the inverse of calibrated transform (T_lidar_camera)
+                lidar_to_camera = np.linalg.inv(self.calibrated_transform)
+
+                # Then get Camera Optical → Target from TF tree
+                camera_to_target = self.find_transform_path(self.camera_frame, target_frame)
+                if camera_to_target is not None:
+                    # Final transform: LiDAR → Target = T_lidar_camera × T_camera_target
+                    final_transform = np.dot(lidar_to_camera, camera_to_target)
                     self.display_final_transform(final_transform, target_frame)
                 else:
                     self.final_transform_display.setPlainText("No transform path found.")
         else:
             self.chain_display.setPlainText(f"Direct: {target_frame}")
-            self.display_final_transform(self.calibrated_transform, target_frame)
+            # For direct transforms, still need to invert for URDF
+            urdf_transform = np.linalg.inv(self.calibrated_transform)
+            self.display_final_transform(urdf_transform, target_frame)
 
         # Update embedded graph
         self.update_embedded_graph()
