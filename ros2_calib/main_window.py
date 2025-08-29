@@ -1513,8 +1513,8 @@ class MainWindow(QMainWindow):
         display_text += f"\nXYZ: [{tvec[0]:.6f}, {tvec[1]:.6f}, {tvec[2]:.6f}]"
         display_text += f"\nRPY: [{rpy[0]:.6f}, {rpy[1]:.6f}, {rpy[2]:.6f}]"
 
-        # Add URDF snippet - sanitize only the joint name, keep original frame IDs for links
-        joint_name = f"{self._sanitize_frame_id(self.lidar_frame)}_2_{self._sanitize_frame_id(target_frame)}_calibrated"
+        # Add URDF snippet - use original frame names for joint name
+        joint_name = f"{self.lidar_frame}_2_{target_frame}_calibrated"
         display_text += "\n\nURDF Joint:\n"
         display_text += f'<joint name="{joint_name}" type="fixed">\n'
         display_text += f'  <parent link="{self.lidar_frame}" />\n'
