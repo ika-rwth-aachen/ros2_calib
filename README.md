@@ -71,6 +71,11 @@ Your rosbag file (.mcap format) should contain the following topics:
   - Contains static transformations between sensor frames
   - If not available, you'll need to manually specify initial transforms
 
+### Install from PyPI
+
+```bash
+pip install ros2-calib
+```
 
 ### Install from Source
 
@@ -85,12 +90,6 @@ source ./venv/bin/activate
 
 # Install in development mode
 python -m pip install .
-```
-
-### Install from PyPI
-
-```bash
-pip install ros2-calib
 ```
 
 ## Quick Start
@@ -166,26 +165,8 @@ The tool automatically handles:
 # Run linter
 ruff check
 
-# Format code  
+# Format code
 ruff format
-```
-
-### Project Structure
-
-```
-ros2_calib/
-├── ros2_calib/
-│   ├── __init__.py
-│   ├── main.py              # Application entry point
-│   ├── main_window.py       # Main GUI window with multi-view navigation
-│   ├── calibration_widget.py # Interactive calibration interface
-│   ├── calibration.py       # Core calibration algorithms
-│   ├── transformation_widget.py # TF tree visualization
-│   ├── bag_handler.py       # Rosbag processing utilities
-│   ├── ros_utils.py         # Mock ROS message types
-│   └── lidar_cleaner.py     # Point cloud cleaning algorithms
-├── pyproject.toml          # Project configuration
-└── README.md              # This file
 ```
 
 ## Contributing
