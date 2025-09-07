@@ -673,11 +673,6 @@ class MainWindow(QMainWindow):
             camerainfo_topic = selected_topics_data["camerainfo_topic"]
 
             # Get first sample to extract frame IDs
-            first_image = (
-                self.frame_samples.get(image_topic, [{}])[0].get("data")
-                if self.frame_samples.get(image_topic)
-                else None
-            )
             first_pointcloud = (
                 self.frame_samples.get(pointcloud_topic, [{}])[0].get("data")
                 if self.frame_samples.get(pointcloud_topic)

@@ -28,7 +28,10 @@ from rosbags.typesys import Stores, get_typestore
 
 
 def get_topic_info(bag_file):
-    """Get topic information from bag file as list of tuples (topic_name, topic_type, message_count)."""
+    """
+    Get topic information from bag file as list of
+    tuples (topic_name, topic_type, message_count).
+    """
     topics = []
     typestore = get_typestore(Stores.ROS2_JAZZY)  # Or another appropriate ROS2 version
     bag_path = Path(bag_file)

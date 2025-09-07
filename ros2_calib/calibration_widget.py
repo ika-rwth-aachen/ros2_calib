@@ -167,8 +167,8 @@ class CalibrationWidget(QWidget):
         view_controls_layout.addRow("Point Size:", self.point_size_spinbox)
         self.colormap_combo = QComboBox()
         self.colormap_combo.addItems(
-            ["autumn", "jet", "winter", "summer", "spring", "hot", "magma", "inferno", "Spectral", "RdYlGn"]
-        )
+            ["autumn", "jet", "winter", "summer", "spring", "hot", "magma",
+             "inferno", "Spectral", "RdYlGn"])
         self.colormap_combo.setCurrentText(AppConstants.DEFAULT_COLORMAP)
         view_controls_layout.addRow("Colormap:", self.colormap_combo)
         self.colorization_mode_combo = QComboBox()
@@ -356,7 +356,7 @@ class CalibrationWidget(QWidget):
         cleaner = LiDARCleaner(K, extrinsics_3x4, self.points_xyz.T, h, w)
         self.occlusion_mask = cleaner.run()
 
-        num_removed = np.sum(self.occlusion_mask == False)
+        num_removed = np.sum(~self.occlusion_mask)
         print(f"Occlusion cleaning finished. {num_removed} points identified as occluded.")
 
         self.progress_bar.setVisible(False)
@@ -379,8 +379,6 @@ class CalibrationWidget(QWidget):
         if colorization_mode == "Distance":
             # Calculate distances for all valid points
             if hasattr(self, "valid_indices") and len(self.valid_indices) > 0:
-                K = np.array(self.camerainfo_msg.k).reshape(3, 3)
-                rvec, _ = cv2.Rodrigues(self.extrinsics[:3, :3])
                 tvec = self.extrinsics[:3, 3]
                 points_cam = (self.extrinsics[:3, :3] @ self.points_xyz.T).T + tvec
                 valid_points_cam = points_cam[self.valid_indices]

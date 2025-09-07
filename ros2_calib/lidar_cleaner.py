@@ -186,7 +186,6 @@ class LiDARCleaner:
         samplenum = int(np.ceil((maxdist - mindist) / srch_resolution).item() + 1)
         sampled_range = np.linspace(mindist, maxdist, samplenum, dtype=np.float32)
 
-        nanchor = len(eppdir_)
         enumlocation = (
             prjpc_lidar_[:, np.newaxis, :]
             + sampled_range[np.newaxis, :, np.newaxis] * eppdir_[:, np.newaxis, :]
