@@ -207,7 +207,6 @@ class FrameSelectionWidget(QWidget):
         layout.addWidget(image_label)
 
         # Frame info
-        timestamp = frame_data.get("timestamp", "Unknown")
         info_label = QLabel(f"Frame {index + 1}")
         info_label.setAlignment(Qt.AlignCenter)
         info_label.setStyleSheet("color: white; font-weight: bold; padding: 5px;")
