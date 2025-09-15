@@ -136,14 +136,21 @@ class MainWindow(QMainWindow):
         self.camerainfo_topic_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         calib_topic_layout.addWidget(self.camerainfo_topic_combo, 1, 1, 1, 2)  # Span 2 columns
 
-        # PointCloud2 topic selection
-        calib_topic_layout.addWidget(QLabel("PointCloud2 Topic:"), 2, 0)
+        # PointCloud2 topic selection (Master LiDAR)
+        calib_topic_layout.addWidget(QLabel("Master PointCloud2:"), 2, 0)
         self.pointcloud_topic_combo = QComboBox()
         self.pointcloud_topic_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         calib_topic_layout.addWidget(self.pointcloud_topic_combo, 2, 1, 1, 2)  # Span 2 columns
 
+        # Second PointCloud2 topic selection (Optional)
+        calib_topic_layout.addWidget(QLabel("Second PointCloud2 (Optional):"), 3, 0)
+        self.second_pointcloud_topic_combo = QComboBox()
+        self.second_pointcloud_topic_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.second_pointcloud_topic_combo.addItem("None (Single LiDAR Mode)")
+        calib_topic_layout.addWidget(self.second_pointcloud_topic_combo, 3, 1, 1, 2)  # Span 2 columns
+
         # Frame count selection
-        calib_topic_layout.addWidget(QLabel("Frame Samples:"), 3, 0)
+        calib_topic_layout.addWidget(QLabel("Frame Samples:"), 4, 0)
         self.frame_count_spinbox = QSpinBox()
         self.frame_count_spinbox.setMinimum(3)
         self.frame_count_spinbox.setMaximum(10)
@@ -152,20 +159,20 @@ class MainWindow(QMainWindow):
         self.frame_count_spinbox.setToolTip(
             "Number of uniformly sampled frames to choose from during calibration"
         )
-        calib_topic_layout.addWidget(self.frame_count_spinbox, 3, 1, 1, 2)  # Span 2 columns
+        calib_topic_layout.addWidget(self.frame_count_spinbox, 4, 1, 1, 2)  # Span 2 columns
 
         # Proceed button
         self.proceed_button = QPushButton("Proceed to Transform Selection")
         self.proceed_button.setEnabled(False)
         self.proceed_button.clicked.connect(self.proceed_to_transform_selection)
         self.proceed_button.setStyleSheet("font-weight: bold; padding: 10px;")
-        calib_topic_layout.addWidget(self.proceed_button, 4, 0, 1, 3)  # Span all columns
+        calib_topic_layout.addWidget(self.proceed_button, 5, 0, 1, 3)  # Span all columns
 
         # Progress bar for rosbag reading
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)  # Initially hidden
         self.progress_bar.setTextVisible(True)
-        calib_topic_layout.addWidget(self.progress_bar, 4, 0, 1, 3)  # Span all columns
+        calib_topic_layout.addWidget(self.progress_bar, 5, 0, 1, 3)  # Span all columns
 
         self.load_layout.addWidget(selection_group)
 
@@ -500,6 +507,8 @@ class MainWindow(QMainWindow):
         self.image_topic_combo.clear()
         self.pointcloud_topic_combo.clear()
         self.camerainfo_topic_combo.clear()
+        self.second_pointcloud_topic_combo.clear()
+        self.second_pointcloud_topic_combo.addItem("None (Single LiDAR Mode)")
 
         image_topics = []
         pointcloud_topics = []
@@ -517,6 +526,7 @@ class MainWindow(QMainWindow):
         self.image_topic_combo.addItems(image_topics)
         self.pointcloud_topic_combo.addItems(pointcloud_topics)
         self.camerainfo_topic_combo.addItems(camerainfo_topics)
+        self.second_pointcloud_topic_combo.addItems(pointcloud_topics)
 
         if image_topics and pointcloud_topics and camerainfo_topics:
             self.proceed_button.setEnabled(True)
@@ -578,6 +588,11 @@ class MainWindow(QMainWindow):
         image_topic = self.image_topic_combo.currentText()
         pointcloud_topic = self.pointcloud_topic_combo.currentText()
         camerainfo_topic = self.camerainfo_topic_combo.currentText()
+        
+        # Get second point cloud topic (None if single LiDAR mode)
+        second_pointcloud_topic = self.second_pointcloud_topic_combo.currentText()
+        if second_pointcloud_topic == "None (Single LiDAR Mode)":
+            second_pointcloud_topic = None
 
         # Create topic type lookup dictionary
         self.progress_bar.setValue(10)
@@ -603,6 +618,10 @@ class MainWindow(QMainWindow):
             camerainfo_topic: topic_types[camerainfo_topic],
         }
 
+        # Add second point cloud if selected
+        if second_pointcloud_topic is not None:
+            topics_to_read[second_pointcloud_topic] = topic_types[second_pointcloud_topic]
+
         # Add TF topics to the read list
         for tf_topic in tf_topics:
             topics_to_read[tf_topic] = topic_types[tf_topic]
@@ -618,6 +637,7 @@ class MainWindow(QMainWindow):
             "image_topic": image_topic,
             "pointcloud_topic": pointcloud_topic,
             "camerainfo_topic": camerainfo_topic,
+            "second_pointcloud_topic": second_pointcloud_topic,
             "tf_topics": tf_topics,
         }
 
@@ -760,18 +780,27 @@ class MainWindow(QMainWindow):
         selected_image = self.frame_samples[image_topic][frame_index]["data"]
         selected_pointcloud = self.frame_samples[pointcloud_topic][frame_index]["data"]
         selected_camerainfo = self.frame_samples[camerainfo_topic][frame_index]["data"]
+        
+        # Extract second point cloud frame data if present
+        second_pointcloud_topic = self.selected_topics_data.get("second_pointcloud_topic")
+        raw_messages = {
+            image_topic: selected_image,
+            pointcloud_topic: selected_pointcloud,
+            camerainfo_topic: selected_camerainfo,
+        }
+        
+        if second_pointcloud_topic is not None and second_pointcloud_topic in self.frame_samples:
+            selected_second_pointcloud = self.frame_samples[second_pointcloud_topic][frame_index]["data"]
+            raw_messages[second_pointcloud_topic] = selected_second_pointcloud
 
         # Create the selected_topics structure as if single frame was processed
         self.selected_topics = {
             "image_topic": image_topic,
             "pointcloud_topic": pointcloud_topic,
             "camerainfo_topic": camerainfo_topic,
+            "second_pointcloud_topic": second_pointcloud_topic,
             "topic_types": self.topic_types,
-            "raw_messages": {
-                image_topic: selected_image,
-                pointcloud_topic: selected_pointcloud,
-                camerainfo_topic: selected_camerainfo,
-            },
+            "raw_messages": raw_messages,
             "tf_messages": self.tf_messages,
         }
 
@@ -805,6 +834,22 @@ class MainWindow(QMainWindow):
         if hasattr(msg, "header") and hasattr(msg.header, "frame_id"):
             return msg.header.frame_id
         return "unknown_frame"
+        
+    def get_transform_for_frame(self, frame_id):
+        """Get transformation matrix from given frame to camera frame."""
+        if not self.tf_tree:
+            print(f"[DEBUG] No TF tree available, using identity transform for {frame_id}")
+            return np.eye(4)
+            
+        # Try to find transformation from frame_id to camera_frame
+        transform_matrix = self.find_transform_path(frame_id, self.camera_frame)
+        if transform_matrix is not None:
+            print(f"[DEBUG] Found TF transform from {frame_id} to {self.camera_frame}")
+            # Invert for projection (camera to frame becomes frame to camera)
+            return np.linalg.inv(transform_matrix)
+        else:
+            print(f"[DEBUG] No TF transform found from {frame_id} to {self.camera_frame}, using identity")
+            return np.eye(4)
 
     def proceed_to_calibration(self, initial_transform):
         """Proceed to calibration with selected transformation."""
@@ -816,6 +861,7 @@ class MainWindow(QMainWindow):
         image_topic = self.selected_topics["image_topic"]
         pointcloud_topic = self.selected_topics["pointcloud_topic"]
         camerainfo_topic = self.selected_topics["camerainfo_topic"]
+        second_pointcloud_topic = self.selected_topics.get("second_pointcloud_topic")
         topic_types = self.selected_topics["topic_types"]
         raw_messages = self.selected_topics["raw_messages"]
 
@@ -827,10 +873,33 @@ class MainWindow(QMainWindow):
             raw_messages[camerainfo_topic], topic_types[camerainfo_topic]
         )
 
-        # Create calibration widget with initial transformation
-        self.calibration_widget = CalibrationWidget(
-            image_msg, pointcloud_msg, camerainfo_msg, ros_utils, initial_transform
-        )
+        # Convert second point cloud message if present
+        second_pointcloud_msg = None
+        if second_pointcloud_topic is not None and second_pointcloud_topic in raw_messages:
+            second_pointcloud_msg = convert_to_mock(
+                raw_messages[second_pointcloud_topic], topic_types[second_pointcloud_topic]
+            )
+
+        if second_pointcloud_msg is not None:
+            # Use DualCalibrationWidget for dual LiDAR setup
+            from .dual_calibration_widget import DualCalibrationWidget
+            
+            # Extract frame IDs
+            master_frame_id = self.extract_frame_id(pointcloud_msg)
+            second_frame_id = self.extract_frame_id(second_pointcloud_msg)
+            
+            # Get transformation for second point cloud to camera
+            second_initial_transform = self.get_transform_for_frame(second_frame_id)
+            
+            self.calibration_widget = DualCalibrationWidget(
+                image_msg, pointcloud_msg, second_pointcloud_msg, camerainfo_msg, ros_utils,
+                initial_transform, second_initial_transform, master_frame_id, second_frame_id
+            )
+        else:
+            # Use original CalibrationWidget for single LiDAR setup
+            self.calibration_widget = CalibrationWidget(
+                image_msg, pointcloud_msg, camerainfo_msg, ros_utils, initial_transform
+            )
 
         # Connect the calibration completion signal
         self.calibration_widget.calibration_completed.connect(self.show_calibration_results)
@@ -1239,9 +1308,12 @@ class MainWindow(QMainWindow):
 
     # Calibration Results View Methods
 
-    def show_calibration_results(self, calibrated_transform):
+    def show_calibration_results(self, calibration_results):
         """Show calibration results and TF integration options."""
-        self.calibrated_transform = calibrated_transform
+        self.calibration_results = calibration_results
+        
+        # For backward compatibility, set calibrated_transform to master_to_camera
+        self.calibrated_transform = calibration_results['master_to_camera']
 
         # Switch to results view (index 3 after frame selection was added)
         results_index = self.get_results_view_index()
@@ -1326,31 +1398,84 @@ class MainWindow(QMainWindow):
 
     def display_calibrated_transform(self):
         """Display the calibrated transformation matrix."""
-        # For URDF, we need the inverse transformation T_lidar_camera (parent → child)
-        urdf_transform = np.linalg.inv(self.calibrated_transform)
-
-        display_text = f"{self.lidar_frame} → {self.camera_frame}:\n"
-        for i in range(4):
-            row_text = "  ".join(f"{urdf_transform[i, j]:8.4f}" for j in range(4))
-            display_text += f"[{row_text}]\n"
-
-        # Add translation and rotation info
         from scipy.spatial.transform import Rotation
+        
+        if hasattr(self, 'calibration_results') and self.calibration_results.get('mode') == 'dual_lidar':
+            # Dual LiDAR mode - display both transforms
+            display_text = "=== DUAL LIDAR CALIBRATION RESULTS ===\n\n"
+            
+            # Master LiDAR to camera transform
+            master_frame_id = self.calibration_results.get('master_frame_id', 'master_lidar')
+            master_transform = self.calibration_results['master_to_camera']
+            urdf_master_transform = np.linalg.inv(master_transform)  # For URDF (parent → child)
+            
+            display_text += f"Master LiDAR ({master_frame_id}) → {self.camera_frame}:\n"
+            for i in range(4):
+                row_text = "  ".join(f"{urdf_master_transform[i, j]:8.4f}" for j in range(4))
+                display_text += f"[{row_text}]\n"
+            
+            master_tvec = urdf_master_transform[:3, 3]
+            master_rpy = Rotation.from_matrix(urdf_master_transform[:3, :3]).as_euler("xyz", degrees=False)
+            display_text += f"XYZ: [{master_tvec[0]:.6f}, {master_tvec[1]:.6f}, {master_tvec[2]:.6f}]\n"
+            display_text += f"RPY: [{master_rpy[0]:.6f}, {master_rpy[1]:.6f}, {master_rpy[2]:.6f}]\n\n"
+            
+            # Second LiDAR to camera transform
+            second_frame_id = self.calibration_results.get('second_frame_id', 'second_lidar')
+            second_transform = self.calibration_results['second_to_camera']
+            urdf_second_transform = np.linalg.inv(second_transform)  # For URDF (parent → child)
+            
+            display_text += f"Second LiDAR ({second_frame_id}) → {self.camera_frame}:\n"
+            for i in range(4):
+                row_text = "  ".join(f"{urdf_second_transform[i, j]:8.4f}" for j in range(4))
+                display_text += f"[{row_text}]\n"
+            
+            second_tvec = urdf_second_transform[:3, 3]
+            second_rpy = Rotation.from_matrix(urdf_second_transform[:3, :3]).as_euler("xyz", degrees=False)
+            display_text += f"XYZ: [{second_tvec[0]:.6f}, {second_tvec[1]:.6f}, {second_tvec[2]:.6f}]\n"
+            display_text += f"RPY: [{second_rpy[0]:.6f}, {second_rpy[1]:.6f}, {second_rpy[2]:.6f}]\n\n"
+            
+            # URDF joints
+            display_text += "URDF Joints:\n"
+            
+            # Master joint
+            master_joint_name = f"{master_frame_id}_2_{self.camera_frame}_calibrated"
+            display_text += f'<joint name="{master_joint_name}" type="fixed">\n'
+            display_text += f'  <parent link="{master_frame_id}" />\n'
+            display_text += f'  <child link="{self.camera_frame}" />\n'
+            display_text += f'  <origin xyz="{master_tvec[0]:.6f} {master_tvec[1]:.6f} {master_tvec[2]:.6f}" rpy="{master_rpy[0]:.6f} {master_rpy[1]:.6f} {master_rpy[2]:.6f}" />\n'
+            display_text += "</joint>\n\n"
+            
+            # Second joint
+            second_joint_name = f"{second_frame_id}_2_{self.camera_frame}_calibrated"
+            display_text += f'<joint name="{second_joint_name}" type="fixed">\n'
+            display_text += f'  <parent link="{second_frame_id}" />\n'
+            display_text += f'  <child link="{self.camera_frame}" />\n'
+            display_text += f'  <origin xyz="{second_tvec[0]:.6f} {second_tvec[1]:.6f} {second_tvec[2]:.6f}" rpy="{second_rpy[0]:.6f} {second_rpy[1]:.6f} {second_rpy[2]:.6f}" />\n'
+            display_text += "</joint>"
+            
+        else:
+            # Single LiDAR mode (original code)
+            urdf_transform = np.linalg.inv(self.calibrated_transform)
 
-        urdf_tvec = urdf_transform[:3, 3]
-        urdf_rpy = Rotation.from_matrix(urdf_transform[:3, :3]).as_euler("xyz", degrees=False)
+            display_text = f"{self.lidar_frame} → {self.camera_frame}:\n"
+            for i in range(4):
+                row_text = "  ".join(f"{urdf_transform[i, j]:8.4f}" for j in range(4))
+                display_text += f"[{row_text}]\n"
 
-        display_text += f"\nXYZ: [{urdf_tvec[0]:.6f}, {urdf_tvec[1]:.6f}, {urdf_tvec[2]:.6f}]"
-        display_text += f"\nRPY: [{urdf_rpy[0]:.6f}, {urdf_rpy[1]:.6f}, {urdf_rpy[2]:.6f}]"
+            urdf_tvec = urdf_transform[:3, 3]
+            urdf_rpy = Rotation.from_matrix(urdf_transform[:3, :3]).as_euler("xyz", degrees=False)
 
-        # Add URDF snippet - use original frame names for joint name
-        joint_name = f"{self.lidar_frame}_2_{self.camera_frame}_calibrated"
-        display_text += "\n\nURDF Joint:\n"
-        display_text += f'<joint name="{joint_name}" type="fixed">\n'
-        display_text += f'  <parent link="{self.lidar_frame}" />\n'
-        display_text += f'  <child link="{self.camera_frame}" />\n'
-        display_text += f'  <origin xyz="{urdf_tvec[0]:.6f} {urdf_tvec[1]:.6f} {urdf_tvec[2]:.6f}" rpy="{urdf_rpy[0]:.6f} {urdf_rpy[1]:.6f} {urdf_rpy[2]:.6f}" />\n'
-        display_text += "</joint>"
+            display_text += f"\nXYZ: [{urdf_tvec[0]:.6f}, {urdf_tvec[1]:.6f}, {urdf_tvec[2]:.6f}]"
+            display_text += f"\nRPY: [{urdf_rpy[0]:.6f}, {urdf_rpy[1]:.6f}, {urdf_rpy[2]:.6f}]"
+
+            # Add URDF snippet - use original frame names for joint name
+            joint_name = f"{self.lidar_frame}_2_{self.camera_frame}_calibrated"
+            display_text += "\n\nURDF Joint:\n"
+            display_text += f'<joint name="{joint_name}" type="fixed">\n'
+            display_text += f'  <parent link="{self.lidar_frame}" />\n'
+            display_text += f'  <child link="{self.camera_frame}" />\n'
+            display_text += f'  <origin xyz="{urdf_tvec[0]:.6f} {urdf_tvec[1]:.6f} {urdf_tvec[2]:.6f}" rpy="{urdf_rpy[0]:.6f} {urdf_rpy[1]:.6f} {urdf_rpy[2]:.6f}" />\n'
+            display_text += "</joint>"
 
         self.calibration_result_display.setPlainText(display_text)
 
