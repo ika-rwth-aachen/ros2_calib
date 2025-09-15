@@ -29,12 +29,14 @@ from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QImage, QKeyEvent, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QGraphicsEllipseItem,
     QGraphicsItem,
+    QGraphicsPixmapItem,
     QGraphicsScene,
     QGraphicsView,
     QGridLayout,
@@ -122,6 +124,10 @@ class CalibrationWidget(QWidget):
         self.extrinsics = np.copy(self.initial_extrinsics)
         self.occlusion_mask = None
 
+        # Image rectification state
+        self.original_cv_image = None
+        self.is_rectification_enabled = False
+
         self.selection_mode = None
         self.selected_2d_point = None
         self.temp_2d_marker = []
@@ -151,6 +157,48 @@ class CalibrationWidget(QWidget):
         self._update_inputs_from_extrinsics()
         self._update_calibrate_button_highlight()
         self.display_camera_intrinsics()
+
+
+    def has_significant_distortion(self):
+        """Check if camera has significant distortion coefficients."""
+        if not hasattr(self.camerainfo_msg, 'd'):
+            return False
+
+        # Convert distortion coefficients to numpy array
+        dist_coeffs = np.array(self.camerainfo_msg.d)
+
+        # Check if the array is empty or all zeros
+        if dist_coeffs.size == 0:
+            return False
+
+        # Check if any distortion coefficient is significantly non-zero
+        # Use a threshold to account for numerical precision
+        threshold = 1e-6
+        return np.any(np.abs(dist_coeffs) > threshold)
+
+    def toggle_rectification(self, enabled):
+        """Toggle image rectification on/off."""
+        self.is_rectification_enabled = enabled
+        self.display_image()  # Refresh the display
+
+    def rectify_image(self, image):
+        """Apply camera undistortion to the image using cv2.undistort."""
+        if not self.has_significant_distortion():
+            return image
+
+        # Get camera matrix and distortion coefficients
+        K = np.array(self.camerainfo_msg.k).reshape(3, 3)
+        dist_coeffs = np.array(self.camerainfo_msg.d)
+
+        # Undistort the image
+        try:
+            # Use cv2.undistort with the same camera matrix as newCameraMatrix
+            # This preserves the same image dimensions and focal length
+            rectified_image = cv2.undistort(image, K, dist_coeffs, None, K)
+            return rectified_image
+        except Exception as e:
+            print(f"[WARNING] Failed to rectify image: {e}")
+            return image
 
     def _setup_controls(self):
         right_layout = QHBoxLayout()
@@ -183,6 +231,20 @@ class CalibrationWidget(QWidget):
         self.max_value_spinbox.setRange(-1e9, 1e9)
         self.max_value_spinbox.setDecimals(2)
         view_controls_layout.addRow("Max Value:", self.max_value_spinbox)
+
+        # Image rectification checkbox
+        self.rectify_checkbox = QCheckBox("Rectify Image")
+        self.rectify_checkbox.setToolTip("Undistort the image using camera distortion parameters")
+        # Only enable if distortion coefficients are available
+        has_distortion = self.has_significant_distortion()
+        self.rectify_checkbox.setEnabled(has_distortion)
+        # Enable by default if distortion is detected
+        if has_distortion:
+            self.is_rectification_enabled = True
+            self.rectify_checkbox.setChecked(True)
+        self.rectify_checkbox.toggled.connect(self.toggle_rectification)
+        view_controls_layout.addRow(self.rectify_checkbox)
+
         self.apply_view_button = QPushButton("Apply View Changes")
         self.apply_view_button.clicked.connect(self.redraw_points)
         view_controls_layout.addRow(self.apply_view_button)
@@ -294,7 +356,8 @@ class CalibrationWidget(QWidget):
         intrinsics_layout = QVBoxLayout(intrinsics_group)
 
         self.intrinsics_display = QTextEdit()
-        self.intrinsics_display.setMaximumHeight(300)
+        self.intrinsics_display.setMinimumHeight(400)
+        self.intrinsics_display.setMaximumHeight(600)
         self.intrinsics_display.setFont("monospace")
         self.intrinsics_display.setFontPointSize(10)
         self.intrinsics_display.setReadOnly(True)
@@ -557,41 +620,94 @@ class CalibrationWidget(QWidget):
         self.view.setDragMode(QGraphicsView.ScrollHandDrag)
 
     def display_image(self):
-        if (
-            hasattr(self.image_msg, "_type")
-            and self.image_msg._type == "sensor_msgs/msg/CompressedImage"
-        ):
-            np_arr = np.frombuffer(self.image_msg.data, np.uint8)
-            self.cv_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        # Decode/load the original image if not already done
+        if self.original_cv_image is None:
+            if (
+                hasattr(self.image_msg, "_type")
+                and self.image_msg._type == "sensor_msgs/msg/CompressedImage"
+            ):
+                np_arr = np.frombuffer(self.image_msg.data, np.uint8)
+                self.original_cv_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            else:
+                self.original_cv_image = self.ros_utils.image_to_numpy(self.image_msg)
+
+            # Convert BGR to RGB if needed
+            if "bgr" in self.image_msg.encoding:
+                self.original_cv_image = cv2.cvtColor(self.original_cv_image, cv2.COLOR_BGR2RGB)
+
+        # Apply rectification if enabled
+        if self.is_rectification_enabled:
+            # Convert back to BGR for OpenCV undistort function
+            bgr_image = cv2.cvtColor(self.original_cv_image, cv2.COLOR_RGB2BGR)
+            rectified_bgr = self.rectify_image(bgr_image)
+            self.cv_image = cv2.cvtColor(rectified_bgr, cv2.COLOR_BGR2RGB)
         else:
-            self.cv_image = self.ros_utils.image_to_numpy(self.image_msg)
-        if "bgr" in self.image_msg.encoding:
-            self.cv_image = cv2.cvtColor(self.cv_image, cv2.COLOR_BGR2RGB)
+            self.cv_image = self.original_cv_image.copy()
+
+        # Update UI and display
         h, w, c = self.cv_image.shape
         self.image_res_label.setText(f"{w} x {h}")
+
+        # Clear existing image from scene but preserve other items
+        items_to_preserve = []
+        for item in self.scene.items():
+            if not isinstance(item, QGraphicsPixmapItem):
+                items_to_preserve.append(item)
+
+        # Clear the scene and add the new image
+        self.scene.clear()
         q_image = QImage(self.cv_image.data, w, h, 3 * w, QImage.Format_RGB888)
         self.scene.addPixmap(QPixmap.fromImage(q_image))
 
+        # Restore preserved items
+        for item in items_to_preserve:
+            self.scene.addItem(item)
+
+        # Re-project point cloud with the updated image
+        self.project_pointcloud()
+
     def display_camera_intrinsics(self):
         """Display the camera intrinsic matrix K."""
+        # Add camera info
+        display_text = (
+            f"\nImage Size: {self.camerainfo_msg.width} x {self.camerainfo_msg.height}\n"
+        )
+
         K = np.array(self.camerainfo_msg.k).reshape(3, 3)
 
-        display_text = "Camera Matrix K:\n"
+        display_text += "\nCamera Matrix K:\n"
         for i in range(3):
             row_text = "  ".join(f"{K[i, j]:8.2f}" for j in range(3))
             display_text += f"[{row_text}]\n"
 
-        # Add camera info
-        display_text += (
-            f"\nImage Size: {self.camerainfo_msg.width} x {self.camerainfo_msg.height}\n"
-        )
-        display_text += f"Distortion: {self.camerainfo_msg.distortion_model}"
-
         # Add focal length and principal point info
         fx, fy = K[0, 0], K[1, 1]
         cx, cy = K[0, 2], K[1, 2]
-        display_text += f"\n\nFocal Length: fx={fx:.1f}, fy={fy:.1f}"
+        display_text += f"\nFocal Length: fx={fx:.1f}, fy={fy:.1f}"
         display_text += f"\nPrincipal Point: cx={cx:.1f}, cy={cy:.1f}"
+
+        display_text += "\n"
+
+
+        display_text += f"Distortion Model: {self.camerainfo_msg.distortion_model}"
+
+        # Add distortion coefficients
+        if hasattr(self.camerainfo_msg, 'd') and len(self.camerainfo_msg.d) > 0:
+            dist_coeffs = np.array(self.camerainfo_msg.d)
+            display_text += "\nDistortion Coeffs: ["
+            coeffs_str = ", ".join(f"{coeff:.6f}" for coeff in dist_coeffs)
+            display_text += coeffs_str + "]"
+
+            # Add interpretation of common distortion models
+            if len(dist_coeffs) >= 4:
+                display_text += f"\n  k1={dist_coeffs[0]:.6f}, k2={dist_coeffs[1]:.6f}"
+                display_text += f"\n  p1={dist_coeffs[2]:.6f}, p2={dist_coeffs[3]:.6f}"
+                if len(dist_coeffs) >= 5:
+                    display_text += f", k3={dist_coeffs[4]:.6f}"
+                if len(dist_coeffs) >= 8:
+                    display_text += f"\n  k4={dist_coeffs[5]:.6f}, k5={dist_coeffs[6]:.6f}, k6={dist_coeffs[7]:.6f}"
+        else:
+            display_text += "\nDistortion Coeffs: None"
 
         self.intrinsics_display.setPlainText(display_text)
 
