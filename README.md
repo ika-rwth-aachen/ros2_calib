@@ -58,7 +58,8 @@
 
 ### Rosbag Requirements
 
-Your rosbag file (.mcap format) should contain the following topics:
+Your rosbag file (.mcap format) including the metadata 
+file (**metadata.yaml**) should contain the following topics:
 
 **Required:**
 - **Camera topics**: `/camera/image_raw` or `/camera/image_rect`
