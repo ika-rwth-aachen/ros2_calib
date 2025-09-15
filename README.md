@@ -58,8 +58,7 @@
 
 ### Rosbag Requirements
 
-Your rosbag file (.mcap format) including the metadata 
-file (**metadata.yaml**) should contain the following topics:
+Your rosbag file (`.mcap` format) should contain the following topics:
 
 **Required:**
 - **Camera topics**: `/camera/image_raw` or `/camera/image_rect`
@@ -72,6 +71,9 @@ file (**metadata.yaml**) should contain the following topics:
 - **Transform topics**: `/tf_static` (tf2_msgs/TFMessage) 
   - Contains static transformations between sensor frames
   - If not available, you'll need to manually specify initial transforms
+
+Furthermore, the metadata file (**metadata.yaml**) must be present in the same
+directory as the `.mcap` file (usually automatically created by ROS 2 when recording).
 
 ### Install from PyPI
 
