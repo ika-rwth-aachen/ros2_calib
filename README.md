@@ -6,6 +6,7 @@
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![PySide6](https://img.shields.io/badge/PySide6-GUI-orange.svg)](https://pypi.org/project/PySide6/)
 [![Publish to PyPI](https://github.com/ika-rwth-aachen/ros2_calib/actions/workflows/publish.yml/badge.svg)](https://github.com/ika-rwth-aachen/ros2_calib/actions/workflows/publish.yml)
+[![DOI](https://zenodo.org/badge/1040800706.svg)](https://doi.org/10.5281/zenodo.17119720)
 
 ```
           ██████   ██████  ███████ ██████       ██████  █████   ██      ██ ██████  
@@ -57,7 +58,7 @@
 
 ### Rosbag Requirements
 
-Your rosbag file (.mcap format) should contain the following topics:
+Your rosbag file (`.mcap` format) should contain the following topics:
 
 **Required:**
 - **Camera topics**: `/camera/image_raw` or `/camera/image_rect`
@@ -70,6 +71,9 @@ Your rosbag file (.mcap format) should contain the following topics:
 - **Transform topics**: `/tf_static` (tf2_msgs/TFMessage) 
   - Contains static transformations between sensor frames
   - If not available, you'll need to manually specify initial transforms
+
+Furthermore, the metadata file (**metadata.yaml**) must be present in the same
+directory as the `.mcap` file (usually automatically created by ROS 2 when recording).
 
 ### Install from PyPI
 

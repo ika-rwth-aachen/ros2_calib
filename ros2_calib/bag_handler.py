@@ -27,13 +27,14 @@ from rosbags.highlevel import AnyReader
 from rosbags.typesys import Stores, get_typestore
 
 
-def get_topic_info(bag_file):
+def get_topic_info(bag_file, ros_version="JAZZY"):
     """
     Get topic information from bag file as list of
     tuples (topic_name, topic_type, message_count).
     """
     topics = []
-    typestore = get_typestore(Stores.ROS2_JAZZY)  # Or another appropriate ROS2 version
+    ros_store = getattr(Stores, f"ROS2_{ros_version}")
+    typestore = get_typestore(ros_store)
     bag_path = Path(bag_file)
     with AnyReader([bag_path.parent], default_typestore=typestore) as reader:
         for connection in reader.connections:
@@ -41,9 +42,10 @@ def get_topic_info(bag_file):
     return topics
 
 
-def get_total_message_count(bag_file):
+def get_total_message_count(bag_file, ros_version="JAZZY"):
     """Get total message count from bag file for progress tracking."""
-    typestore = get_typestore(Stores.ROS2_JAZZY)
+    ros_store = getattr(Stores, f"ROS2_{ros_version}")
+    typestore = get_typestore(ros_store)
     bag_path = Path(bag_file)
     total_count = 0
     with AnyReader([bag_path.parent], default_typestore=typestore) as reader:
@@ -52,12 +54,13 @@ def get_total_message_count(bag_file):
     return total_count
 
 
-def read_messages(bag_file, topics_to_read):
+def read_messages(bag_file, topics_to_read, ros_version="JAZZY"):
     """Read specific messages from bag file.
 
     Args:
         bag_file: Path to bag file
         topics_to_read: Either dict with topic names as keys, or list of topic names
+        ros_version: ROS version (JAZZY or HUMBLE)
 
     Returns:
         Generator yielding (timestamp, message) tuples
@@ -67,7 +70,8 @@ def read_messages(bag_file, topics_to_read):
     else:
         topics_needed = set(topics_to_read)
 
-    typestore = get_typestore(Stores.ROS2_JAZZY)
+    ros_store = getattr(Stores, f"ROS2_{ros_version}")
+    typestore = get_typestore(ros_store)
     bag_path = Path(bag_file)
     with AnyReader([bag_path.parent], default_typestore=typestore) as reader:
         for connection, timestamp, rawdata in reader.messages():
@@ -76,19 +80,21 @@ def read_messages(bag_file, topics_to_read):
                 yield timestamp, msg
 
 
-def read_single_messages(bag_file, topics_to_read):
+def read_single_messages(bag_file, topics_to_read, ros_version="JAZZY"):
     """Read single message per topic from bag file (legacy function).
 
     Args:
         bag_file: Path to bag file
         topics_to_read: Dict with topic names as keys
+        ros_version: ROS version (JAZZY or HUMBLE)
 
     Returns:
         Dict mapping topic names to messages
     """
     messages = {}
     topics_needed = set(topics_to_read.keys())
-    typestore = get_typestore(Stores.ROS2_JAZZY)
+    ros_store = getattr(Stores, f"ROS2_{ros_version}")
+    typestore = get_typestore(ros_store)
     bag_path = Path(bag_file)
     with AnyReader([bag_path.parent], default_typestore=typestore) as reader:
         for connection, timestamp, rawdata in reader.messages():
@@ -101,9 +107,10 @@ def read_single_messages(bag_file, topics_to_read):
     return messages
 
 
-def iterate_all_messages(bag_file: str):
+def iterate_all_messages(bag_file: str, ros_version: str = "JAZZY"):
     """Generator to iterate through all messages in the rosbag efficiently."""
-    typestore = get_typestore(Stores.ROS2_JAZZY)
+    ros_store = getattr(Stores, f"ROS2_{ros_version}")
+    typestore = get_typestore(ros_store)
     bag_path = Path(bag_file)
 
     with AnyReader([bag_path.parent], default_typestore=typestore) as reader:
@@ -153,6 +160,7 @@ def read_all_messages_optimized(
     total_messages=None,
     frame_samples: int = 6,
     topic_message_counts=None,
+    ros_version: str = "JAZZY",
 ) -> dict:
     """Read multiple uniformly sampled frame messages from rosbag."""
     # Separate sensor topics from tf_static topics
@@ -166,7 +174,7 @@ def read_all_messages_optimized(
         if progress_callback:
             progress_callback.emit(10, "Counting messages for sampling...")
 
-        for timestamp, topic, msg_data in iterate_all_messages(bag_file):
+        for timestamp, topic, msg_data in iterate_all_messages(bag_file, ros_version):
             if topic in topic_counts:
                 topic_counts[topic] += 1
     else:
@@ -193,7 +201,7 @@ def read_all_messages_optimized(
     collected_samples = {topic: [] for topic in sensor_topics.keys()}
 
     processed_count = 0
-    for timestamp, topic, msg_data in iterate_all_messages(bag_file):
+    for timestamp, topic, msg_data in iterate_all_messages(bag_file, ros_version):
         processed_count += 1
 
         # Update progress if callback provided
@@ -311,6 +319,7 @@ class RosbagProcessingWorker(QThread):
         total_messages=None,
         frame_samples=1,
         topic_message_counts=None,
+        ros_version="JAZZY",
     ):
         super().__init__()
         self.bag_file = bag_file
@@ -319,6 +328,7 @@ class RosbagProcessingWorker(QThread):
         self.total_messages = total_messages
         self.frame_samples = frame_samples
         self.topic_message_counts = topic_message_counts
+        self.ros_version = ros_version
 
     def run(self):
         try:
@@ -334,6 +344,7 @@ class RosbagProcessingWorker(QThread):
                 self.total_messages,
                 self.frame_samples,
                 self.topic_message_counts,
+                self.ros_version,
             )
 
             self.progress_updated.emit(90, "Processing transformation data...")

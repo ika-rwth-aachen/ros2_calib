@@ -98,6 +98,15 @@ class MainWindow(QMainWindow):
         self.load_bag_button.clicked.connect(self.load_bag)
         load_section_layout.addWidget(self.load_bag_button)
 
+        # ROS version selection dropdown
+        ros_version_label = QLabel("ROS Version:")
+        load_section_layout.addWidget(ros_version_label)
+        self.ros_version_combo = QComboBox()
+        self.ros_version_combo.addItems(["JAZZY", "HUMBLE"])
+        self.ros_version_combo.setCurrentText("JAZZY")
+        self.ros_version_combo.setToolTip("Select the ROS2 version of your rosbag")
+        load_section_layout.addWidget(self.ros_version_combo)
+
         # Subtle drag & drop indicator
         drag_drop_label = QLabel("or Drag & Drop")
         drag_drop_label.setStyleSheet(
@@ -496,7 +505,8 @@ class MainWindow(QMainWindow):
             self.bag_file = file_path
             self.bag_path_label.setText(file_path)
             self.bag_path_label.setStyleSheet("padding: 5px; border: 1px solid gray; color: white;")
-            self.topics = get_topic_info(file_path)
+            ros_version = self.ros_version_combo.currentText()
+            self.topics = get_topic_info(file_path, ros_version)
             self.update_topic_widgets()
         except Exception as e:
             self.bag_path_label.setText(f"Error loading bag: {str(e)}")
@@ -644,7 +654,8 @@ class MainWindow(QMainWindow):
         print(f"[DEBUG] Starting threaded processing of {len(topics_to_read)} topics")
 
         # Get total message count for progress tracking
-        total_messages = get_total_message_count(self.bag_file)
+        ros_version = self.ros_version_combo.currentText()
+        total_messages = get_total_message_count(self.bag_file, ros_version)
         print(f"[DEBUG] Total messages in bag: {total_messages}")
 
         # Get frame count from UI
@@ -663,6 +674,7 @@ class MainWindow(QMainWindow):
             total_messages,
             frame_samples,
             topic_message_counts,
+            ros_version,
         )
         self.processing_worker.progress_updated.connect(self.update_processing_progress)
         self.processing_worker.processing_finished.connect(self.on_processing_finished)
