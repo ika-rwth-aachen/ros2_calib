@@ -646,7 +646,6 @@ class MainWindow(QMainWindow):
             "image_topic": image_topic,
             "pointcloud_topic": pointcloud_topic,
             "camerainfo_topic": camerainfo_topic,
-            "second_pointcloud_topic": second_pointcloud_topic,
             "topic_types": self.topic_types,
             "raw_messages": {
                 image_topic: self.frame_samples[image_topic][frame_index]["data"],
@@ -912,8 +911,20 @@ class MainWindow(QMainWindow):
     def confirm_transformation(self):
         self.proceed_to_calibration(self.current_transform)
 
-    def show_calibration_results(self, calibrated_transform: np.ndarray):
+    def show_calibration_results(self, calibration_results):
         print("[DEBUG] show_calibration_results called on main thread.")
+        print(f"[DEBUG] Received calibration_results: {calibration_results}")
+        print(f"[DEBUG] Results type: {type(calibration_results)}")
+
+        # Handle both old format (direct numpy array) and new format (dictionary)
+        if isinstance(calibration_results, dict):
+            calibrated_transform = calibration_results['master_to_camera']
+        elif isinstance(calibration_results, np.ndarray):
+            calibrated_transform = calibration_results
+        else:
+            print(f"[ERROR] Unexpected calibration result type: {type(calibration_results)}")
+            return
+
         self.calibrated_transform = calibrated_transform
         if self.calibration_type == "LiDAR2Cam":
             self.calibrated_transform = np.linalg.inv(calibrated_transform)
