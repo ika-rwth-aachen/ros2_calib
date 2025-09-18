@@ -30,7 +30,8 @@ dependencies = [
     "scipy",
     "NodeGraphQt",
     "transforms3d",
-    "setuptools"
+    "setuptools",
+    "open3d"
 ]
 
 [project.urls]
