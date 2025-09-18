@@ -122,7 +122,8 @@ class CalibrationWidget(QWidget):
         self.correspondences = {}  # Master LiDAR to camera correspondences
         self.lidar_to_lidar_correspondences = {}  # Second LiDAR to master LiDAR correspondences
 
-        self.initial_extrinsics = initial_transform
+        # Use inverse as transform point cloud to camera frame
+        self.initial_extrinsics = np.linalg.inv(initial_transform)
         self.extrinsics = np.copy(self.initial_extrinsics)
         self.second_lidar_transform = np.eye(4)  # Transform from master to second LiDAR
         self.occlusion_mask = None
@@ -802,7 +803,7 @@ class CalibrationWidget(QWidget):
         """Display the camera intrinsic matrix K."""
         # Add camera info
         display_text = (
-            f"\nImage Size: {self.camerainfo_msg.width} x {self.camerainfo_msg.height}\n"
+            f"Image Size: {self.camerainfo_msg.width} x {self.camerainfo_msg.height}\n"
         )
 
         K = np.array(self.camerainfo_msg.k).reshape(3, 3)
@@ -818,26 +819,25 @@ class CalibrationWidget(QWidget):
         display_text += f"\nFocal Length: fx={fx:.1f}, fy={fy:.1f}"
         display_text += f"\nPrincipal Point: cx={cx:.1f}, cy={cy:.1f}"
 
-        display_text += "\n"
-
+        display_text += "\n\n"
 
         display_text += f"Distortion Model: {self.camerainfo_msg.distortion_model}"
 
         # Add distortion coefficients
         if hasattr(self.camerainfo_msg, 'd') and len(self.camerainfo_msg.d) > 0:
             dist_coeffs = np.array(self.camerainfo_msg.d)
-            display_text += "\nDistortion Coeffs: ["
+            display_text += "\n\nDistortion Coeffs: ["
             coeffs_str = ", ".join(f"{coeff:.6f}" for coeff in dist_coeffs)
             display_text += coeffs_str + "]"
 
             # Add interpretation of common distortion models
             if len(dist_coeffs) >= 4:
-                display_text += f"\n  k1={dist_coeffs[0]:.6f}, k2={dist_coeffs[1]:.6f}"
-                display_text += f"\n  p1={dist_coeffs[2]:.6f}, p2={dist_coeffs[3]:.6f}"
+                display_text += f"\nk1={dist_coeffs[0]:.6f}, k2={dist_coeffs[1]:.6f}"
+                display_text += f"\np1={dist_coeffs[2]:.6f}, p2={dist_coeffs[3]:.6f}"
                 if len(dist_coeffs) >= 5:
                     display_text += f", k3={dist_coeffs[4]:.6f}"
                 if len(dist_coeffs) >= 8:
-                    display_text += f"\n  k4={dist_coeffs[5]:.6f}, k5={dist_coeffs[6]:.6f}, k6={dist_coeffs[7]:.6f}"
+                    display_text += f"\nk4={dist_coeffs[5]:.6f}, k5={dist_coeffs[6]:.6f}, k6={dist_coeffs[7]:.6f}"
         else:
             display_text += "\nDistortion Coeffs: None"
 

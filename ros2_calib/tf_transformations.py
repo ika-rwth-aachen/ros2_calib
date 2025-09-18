@@ -31,9 +31,9 @@ import numpy as np
 import transforms3d
 
 # Constants
-TRANSLATION_IDENTITY = [0.0, 0.0, 0.0]
+TRANSLATION_IDENTITY = np.array([0.0, 0.0, 0.0], dtype=np.float64)
 ROTATION_IDENTITY = np.identity(3, dtype=np.float64)
-ZOOM_IDENTITY = [1.0, 1.0, 1.0]
+ZOOM_IDENTITY = np.array([1.0, 1.0, 1.0], dtype=np.float64)
 
 
 def identity_matrix():
@@ -69,7 +69,7 @@ def quaternion_from_matrix(matrix):
     """
     rotation_matrix = transforms3d.affines.decompose(matrix)[1]
     w, x, y, z = transforms3d.quaternions.mat2quat(rotation_matrix)
-    return np.array([x, y, z, w])
+    return np.array([x, y, z, w], dtype=np.float64)
 
 
 def euler_matrix(ai, aj, ak, axes="sxyz"):
