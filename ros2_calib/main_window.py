@@ -385,9 +385,11 @@ class MainWindow(QMainWindow):
         directory = os.path.dirname(mcap_path)
         mcap_basename = os.path.splitext(os.path.basename(mcap_path))[0]
         metadata_yaml = os.path.join(directory, "metadata.yaml")
-        if os.path.exists(metadata_yaml): return metadata_yaml
+        if os.path.exists(metadata_yaml):
+            return metadata_yaml
         matching_yaml = os.path.join(directory, f"{mcap_basename}.yaml")
-        if os.path.exists(matching_yaml): return matching_yaml
+        if os.path.exists(matching_yaml):
+            return matching_yaml
         return None
 
     def process_dropped_path(self, path):
@@ -531,7 +533,8 @@ class MainWindow(QMainWindow):
         self.update_proceed_button_state()
 
     def validate_lidar_topic_selection(self):
-        if self.calibration_type != "LiDAR2LiDAR": return
+        if self.calibration_type != "LiDAR2LiDAR":
+            return
         source_topic = self.pointcloud_topic_combo.currentText()
         target_topic = self.pointcloud2_topic_combo.currentText()
         if source_topic and source_topic == target_topic:
@@ -846,7 +849,8 @@ class MainWindow(QMainWindow):
     def load_tf_tree_from_preloaded(self):
         topic_name = self.tf_topic_combo.currentText()
         tf_messages = self.selected_topics.get("tf_messages", self.tf_messages)
-        if not topic_name or topic_name not in tf_messages: return
+        if not topic_name or topic_name not in tf_messages:
+            return
 
         self.tf_tree = self.parse_preloaded_tf_message(tf_messages[topic_name])
         self.update_tf_info_display()
@@ -871,10 +875,10 @@ class MainWindow(QMainWindow):
             return ros_utils.TFMessage(transforms=[])
 
         transforms = []
-        for tf in msg_data.transforms:
+        for transform_msg in msg_data.transforms:
             # Get the translation and rotation objects
-            translation_obj = tf.transform.translation
-            rotation_obj = tf.transform.rotation
+            translation_obj = transform_msg.transform.translation
+            rotation_obj = transform_msg.transform.rotation
 
             # Instead of using **vars(), we explicitly access the x, y, z, w attributes.
             # This is safer and ignores any extra metadata like '__msgtype__'.
@@ -893,8 +897,8 @@ class MainWindow(QMainWindow):
             )
 
             new_stamped = ros_utils.TransformStamped(
-                header=ros_utils.Header(frame_id=tf.header.frame_id),
-                child_frame_id=tf.child_frame_id,
+                header=ros_utils.Header(frame_id=transform_msg.header.frame_id),
+                child_frame_id=transform_msg.child_frame_id,
                 transform=new_transform
             )
             transforms.append(new_stamped)
@@ -912,8 +916,10 @@ class MainWindow(QMainWindow):
             self.update_manual_inputs_from_matrix()
 
     def find_transform_path(self, from_frame: str, to_frame: str) -> Optional[np.ndarray]:
-        if from_frame == to_frame: return np.eye(4)
-        if not self.tf_tree: return None
+        if from_frame == to_frame:
+            return np.eye(4)
+        if not self.tf_tree:
+            return None
 
         from collections import deque
         q = deque([(from_frame, np.eye(4))])
@@ -927,7 +933,8 @@ class MainWindow(QMainWindow):
 
         while q:
             curr_frame, T = q.popleft()
-            if curr_frame == to_frame: return T
+            if curr_frame == to_frame:
+                return T
             for neighbor, t in adj.get(curr_frame, []):
                 if neighbor not in visited:
                     visited.add(neighbor)
@@ -952,7 +959,8 @@ class MainWindow(QMainWindow):
 
         while q:
             curr_frame, path = q.popleft()
-            if curr_frame == to_frame: return path
+            if curr_frame == to_frame:
+                return path
             for neighbor in adj.get(curr_frame, []):
                 if neighbor not in visited:
                     visited.add(neighbor)
@@ -970,7 +978,8 @@ class MainWindow(QMainWindow):
         self.tf_info_text.setPlainText(f"Available transformations: {sum(len(c) for c in self.tf_tree.values())}{path_info}")
 
     def show_tf_graph(self):
-        if not self.tf_tree: return
+        if not self.tf_tree:
+            return
         source = self.lidar_frame
         target = self.camera_frame if self.calibration_type == "LiDAR2Cam" else self.lidar2_frame
         path_frames = self.find_transformation_path_frames(source, target)
@@ -1111,7 +1120,7 @@ class MainWindow(QMainWindow):
                 f.write(self.final_transform_display.toPlainText())
 
     def dragEnterEvent(self, event: QDragEnterEvent):
-        if event.mimeData().hasUrls(): 
+        if event.mimeData().hasUrls():
             event.acceptProposedAction()
 
     def dropEvent(self, event: QDropEvent):

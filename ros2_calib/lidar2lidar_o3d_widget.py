@@ -545,7 +545,7 @@ class LiDAR2LiDARCalibrationO3D:
         # Also terminate the application to prevent threading issues
         try:
             gui.Application.instance.quit()
-        except:
+        except Exception:
             pass  # Ignore errors if already closing
 
     def _on_window_close(self):
@@ -553,7 +553,7 @@ class LiDAR2LiDARCalibrationO3D:
         # Properly terminate the Open3D application
         try:
             gui.Application.instance.quit()
-        except:
+        except Exception:
             pass  # Ignore errors if already closing
         return True
 
@@ -596,11 +596,11 @@ class LiDAR2LiDARCalibrationO3D:
         # Remove existing geometries by name instead of clearing all
         try:
             self._scene.scene.remove_geometry("source_cloud")
-        except:
+        except Exception:
             pass
         try:
             self._scene.scene.remove_geometry("target_cloud")
-        except:
+        except Exception:
             pass
 
         # Add geometries based on checkboxes
