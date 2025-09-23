@@ -25,13 +25,14 @@ from typing import Dict, List, Optional
 
 import numpy as np
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QDragEnterEvent, QDropEvent
+from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
     QFormLayout,
     QGridLayout,
     QGroupBox,
+    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -128,14 +129,25 @@ class MainWindow(QMainWindow):
             min-height: 110px;
             font-size: 18px;
             font-weight: 600;
-            padding: 18px 28px;
-            margin: 15px;
-            border-radius: 8px;
+            padding: 18px 30px;
+            margin: 18px;
+            border-radius: 14px;
+            border: 2px solid transparent;
+            background-color: #e45c28;
+        }
+        QPushButton:hover {
+            background-color: #f37b3e;
+        }
+        QPushButton:pressed {
+            background-color: #c64c1f;
+            padding-top: 20px;
+            padding-bottom: 16px;
         }
         """
         )
         self.lidar2cam_button.setStyleSheet(large_button_style)
         self.lidar2cam_button.clicked.connect(lambda: self.select_calibration_type("LiDAR2Cam"))
+        self._apply_button_shadow(self.lidar2cam_button)
         button_layout.addWidget(self.lidar2cam_button)
 
         # Add spacing between buttons
@@ -144,6 +156,7 @@ class MainWindow(QMainWindow):
         self.lidar2lidar_button = QPushButton("LiDAR ↔ LiDAR\nCalibration")
         self.lidar2lidar_button.setStyleSheet(large_button_style)
         self.lidar2lidar_button.clicked.connect(lambda: self.select_calibration_type("LiDAR2LiDAR"))
+        self._apply_button_shadow(self.lidar2lidar_button)
         button_layout.addWidget(self.lidar2lidar_button)
 
         button_layout.addStretch()
@@ -157,6 +170,13 @@ class MainWindow(QMainWindow):
         print(f"[DEBUG] Selected calibration type: {calib_type}")
         self.update_load_view_for_calibration_type()
         self.stacked_widget.setCurrentIndex(1)
+
+    def _apply_button_shadow(self, button: QPushButton) -> None:
+        shadow = QGraphicsDropShadowEffect(button)
+        shadow.setBlurRadius(28)
+        shadow.setOffset(0, 10)
+        shadow.setColor(QColor(0, 0, 0, 90))
+        button.setGraphicsEffect(shadow)
 
     def update_load_view_for_calibration_type(self):
         """Update load view UI based on selected calibration type."""
@@ -445,7 +465,10 @@ class MainWindow(QMainWindow):
         self.pointcloud_topic_combo.addItems(topic_types["pointcloud"])
         self.pointcloud2_topic_combo.addItems(topic_types["pointcloud"])
         self.camerainfo_topic_combo.addItems(topic_types["camerainfo"])
-        self.update_proceed_button_state()
+        if self.calibration_type == "LiDAR2Cam" and self.image_topic_combo.count():
+            self.auto_select_camera_info(self.image_topic_combo.currentIndex())
+        else:
+            self.update_proceed_button_state()
 
     def auto_select_camera_info(self, index):
         if self.calibration_type != "LiDAR2Cam" or index == -1:
