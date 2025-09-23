@@ -32,16 +32,14 @@ class UIStyles:
     # Button highlight style - orange background with rounded corners
     HIGHLIGHT_BUTTON = """
         QPushButton {
-            background-color: #fc9403;
+            background-color: #d64814;
             color: white;
         }
         QPushButton:hover {
-            background-color: #ff9f14;
-            border-color: #f5941a;
+            background-color: #f37329;
         }
         QPushButton:pressed {
-            background-color: #e6860c;
-            border-color: #d17a0a;
+            background-color: #c34113;
         }
     """
 
@@ -49,17 +47,17 @@ class UIStyles:
     DEFAULT_BUTTON = ""
 
     # Colors
-    HIGHLIGHT_COLOR = "#fc9403"
-    HIGHLIGHT_BORDER_COLOR = "#e8a20b"
-    HOVER_COLOR = "#ff9f14"
-    PRESSED_COLOR = "#e6860c"
+    HIGHLIGHT_COLOR = "#d64814"
+    HIGHLIGHT_BORDER_COLOR = "#cf3b0a"
+    HOVER_COLOR = "#f37329"
+    PRESSED_COLOR = "#c34113"
 
 
 class Colors:
     """Color constants used throughout the application."""
 
     # UI Colors
-    HIGHLIGHT_ORANGE = "#fc9403"
+    HIGHLIGHT_ORANGE = "#e95420"
     WARNING_RED = "#dc3545"
     SUCCESS_GREEN = "#28a745"
     INFO_BLUE = "#17a2b8"

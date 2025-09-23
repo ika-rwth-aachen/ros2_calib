@@ -120,7 +120,21 @@ class MainWindow(QMainWindow):
         button_layout.addStretch()
 
         self.lidar2cam_button = QPushButton("LiDAR ↔ Camera\nCalibration")
-        self.lidar2cam_button.setStyleSheet(UIStyles.HIGHLIGHT_BUTTON + "QPushButton { min-width: 180px; min-height: 80px; font-size: 16px; margin: 15px; }")
+        large_button_style = (
+            UIStyles.HIGHLIGHT_BUTTON
+            + """
+        QPushButton {
+            min-width: 220px;
+            min-height: 110px;
+            font-size: 18px;
+            font-weight: 600;
+            padding: 18px 28px;
+            margin: 15px;
+            border-radius: 8px;
+        }
+        """
+        )
+        self.lidar2cam_button.setStyleSheet(large_button_style)
         self.lidar2cam_button.clicked.connect(lambda: self.select_calibration_type("LiDAR2Cam"))
         button_layout.addWidget(self.lidar2cam_button)
 
@@ -128,7 +142,7 @@ class MainWindow(QMainWindow):
         button_layout.addSpacing(40)
 
         self.lidar2lidar_button = QPushButton("LiDAR ↔ LiDAR\nCalibration")
-        self.lidar2lidar_button.setStyleSheet(UIStyles.HIGHLIGHT_BUTTON + "QPushButton { min-width: 180px; min-height: 80px; font-size: 16px; margin: 15px; }")
+        self.lidar2lidar_button.setStyleSheet(large_button_style)
         self.lidar2lidar_button.clicked.connect(lambda: self.select_calibration_type("LiDAR2LiDAR"))
         button_layout.addWidget(self.lidar2lidar_button)
 
@@ -432,20 +446,89 @@ class MainWindow(QMainWindow):
         self.update_proceed_button_state()
 
     def auto_select_camera_info(self, index):
-        if index == -1:
+        if self.calibration_type != "LiDAR2Cam" or index == -1:
+            self.update_proceed_button_state()
             return
+
+        camera_info_count = self.camerainfo_topic_combo.count()
+        if camera_info_count == 0:
+            self.update_proceed_button_state()
+            return
+
         image_topic = self.image_topic_combo.currentText()
-        base_path = image_topic.rsplit('/', 1)[0]
-        possible_topics = list(dict.fromkeys([
-            f"{base_path}/camera_info",
-            image_topic.replace("/image_raw", "/camera_info"),
-            image_topic.replace("/image_color", "/camera_info"),
-            image_topic.replace("/image_rect_color", "/camera_info"),
-        ]))
-        for topic in possible_topics:
-            if (found_index := self.camerainfo_topic_combo.findText(topic, Qt.MatchExactly)) != -1:
+        if not image_topic:
+            self.update_proceed_button_state()
+            return
+
+        transport_suffixes = {"compressed", "compressedDepth", "compressed_depth", "Theora", "theora"}
+
+        def candidate_paths(topic: str) -> List[str]:
+            tokens = [part for part in topic.strip("/").split("/") if part]
+            while tokens and tokens[-1] in transport_suffixes:
+                tokens.pop()
+
+            variants: List[str] = []
+            if tokens:
+                variants.append("/" + "/".join(tokens[:-1] + ["camera_info"]))
+
+            for idx in range(len(tokens) - 1, -1, -1):
+                if "image" in tokens[idx]:
+                    replaced = tokens[:]
+                    replaced[idx] = "camera_info"
+                    variants.append("/" + "/".join(replaced))
+                    variants.append("/" + "/".join(replaced[: idx + 1]))
+                    break
+
+            base_path = "/" + "/".join(tokens[:-1]) if len(tokens) > 1 else ""
+            if base_path:
+                variants.append(f"{base_path}/camera_info")
+
+            seen = set()
+            unique_variants: List[str] = []
+            for item in variants:
+                if item and item not in seen:
+                    seen.add(item)
+                    unique_variants.append(item)
+            return unique_variants
+
+        for candidate in candidate_paths(image_topic):
+            found_index = self.camerainfo_topic_combo.findText(candidate, Qt.MatchExactly)
+            if found_index != -1 and found_index != self.camerainfo_topic_combo.currentIndex():
+                self.camerainfo_topic_combo.blockSignals(True)
                 self.camerainfo_topic_combo.setCurrentIndex(found_index)
+                self.camerainfo_topic_combo.blockSignals(False)
+                self.update_proceed_button_state()
                 return
+
+        def prefix_score(candidate: str) -> int:
+            image_parts = image_topic.strip("/").split("/")
+            camera_parts = candidate.strip("/").split("/")
+            score = 0
+            for image_part, camera_part in zip(image_parts, camera_parts):
+                if image_part == camera_part:
+                    score += 2
+                    continue
+                if "image" in image_part and "camera_info" in camera_part:
+                    score += 1
+                    continue
+                break
+            return score
+
+        best_index = None
+        best_score = 0
+        for candidate_index in range(camera_info_count):
+            candidate_topic = self.camerainfo_topic_combo.itemText(candidate_index)
+            score = prefix_score(candidate_topic)
+            if score > best_score:
+                best_score = score
+                best_index = candidate_index
+
+        if best_index is not None and best_index != self.camerainfo_topic_combo.currentIndex():
+            self.camerainfo_topic_combo.blockSignals(True)
+            self.camerainfo_topic_combo.setCurrentIndex(best_index)
+            self.camerainfo_topic_combo.blockSignals(False)
+
+        self.update_proceed_button_state()
 
     def validate_lidar_topic_selection(self):
         if self.calibration_type != "LiDAR2LiDAR": return
@@ -710,6 +793,9 @@ class MainWindow(QMainWindow):
         self.calibration_completed.emit(final_transform)
 
     def go_back_to_calibration(self):
+        if self.calibration_type == "LiDAR2LiDAR":
+            self.restart_lidar_calibration()
+            return
         for i in range(self.stacked_widget.count()):
             if isinstance(self.stacked_widget.widget(i), CalibrationWidget):
                 self.stacked_widget.setCurrentIndex(i)
@@ -717,6 +803,23 @@ class MainWindow(QMainWindow):
 
     def get_results_view_index(self):
         return 4
+
+    def restart_lidar_calibration(self):
+        raw_msgs = self.selected_topics.get("raw_messages")
+        topic_types = self.selected_topics.get("topic_types")
+        pc_topic1 = self.selected_topics.get("pointcloud_topic")
+        pc_topic2 = self.selected_topics.get("pointcloud2_topic")
+
+        if not (raw_msgs and topic_types and pc_topic1 and pc_topic2):
+            print("[WARN] Missing LiDAR topics or raw messages; cannot restart calibration.")
+            return
+
+        if isinstance(self.calibrated_transform, np.ndarray):
+            initial_transform = np.array(self.calibrated_transform, copy=True)
+        else:
+            initial_transform = np.eye(4, dtype=np.float64)
+
+        self.proceed_to_lidar_calibration_with_transform(initial_transform)
 
     def load_tf_topics_in_transform_view(self):
         self.tf_topic_combo.clear()
