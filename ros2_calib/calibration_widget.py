@@ -648,10 +648,10 @@ class CalibrationWidget(QWidget):
         h, w, c = self.cv_image.shape
         self.image_res_label.setText(f"{w} x {h}")
 
-        # Clear existing image from scene but preserve other items
+        # Clear existing image from scene but preserve other items (except PointCloudItem)
         items_to_preserve = []
         for item in self.scene.items():
-            if not isinstance(item, QGraphicsPixmapItem):
+            if not isinstance(item, QGraphicsPixmapItem) and not isinstance(item, PointCloudItem):
                 items_to_preserve.append(item)
 
         # Clear the scene and add the new image
@@ -659,7 +659,7 @@ class CalibrationWidget(QWidget):
         q_image = QImage(self.cv_image.data, w, h, 3 * w, QImage.Format_RGB888)
         self.scene.addPixmap(QPixmap.fromImage(q_image))
 
-        # Restore preserved items
+        # Restore preserved items (PointCloudItem will be recreated by project_pointcloud)
         for item in items_to_preserve:
             self.scene.addItem(item)
 
