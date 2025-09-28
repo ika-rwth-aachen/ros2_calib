@@ -34,7 +34,13 @@ from scipy.spatial.transform import Rotation
 class LiDAR2LiDARCalibrationO3D:
     """Open3D GUI-based LiDAR-to-LiDAR calibration interface."""
 
-    def __init__(self, pointcloud_msg, pointcloud2_msg, initial_transform=None, completion_callback: Callable = None):
+    def __init__(
+        self,
+        pointcloud_msg,
+        pointcloud2_msg,
+        initial_transform=None,
+        completion_callback: Callable = None,
+    ):
         self.source_pointcloud_msg = pointcloud_msg
         self.target_pointcloud_msg = pointcloud2_msg
         self.initial_transform = initial_transform if initial_transform is not None else np.eye(4)
@@ -132,7 +138,6 @@ class LiDAR2LiDARCalibrationO3D:
         # Manual adjustment controls
         self.setup_manual_controls(em, separation_height)
 
-
         # Action buttons
         self.setup_action_buttons(em, separation_height)
 
@@ -152,8 +157,9 @@ class LiDAR2LiDARCalibrationO3D:
 
     def setup_info_section(self, em, separation_height):
         """Setup point cloud information section."""
-        info_section = gui.CollapsableVert("Point Cloud Information", 0.25 * em,
-                                          gui.Margins(em, 0, 0, 0))
+        info_section = gui.CollapsableVert(
+            "Point Cloud Information", 0.25 * em, gui.Margins(em, 0, 0, 0)
+        )
 
         source_info = gui.Label(f"Source: {len(self.source_cloud.points)} points")
         target_info = gui.Label(f"Target: {len(self.target_cloud.points)} points")
@@ -166,8 +172,7 @@ class LiDAR2LiDARCalibrationO3D:
 
     def setup_visualization_controls(self, em, separation_height):
         """Setup visualization control section."""
-        vis_section = gui.CollapsableVert("Visualization", 0.25 * em,
-                                         gui.Margins(em, 0, 0, 0))
+        vis_section = gui.CollapsableVert("Visualization", 0.25 * em, gui.Margins(em, 0, 0, 0))
 
         # Checkboxes for showing clouds
         self._show_source = gui.Checkbox("Show Source Cloud")
@@ -185,8 +190,9 @@ class LiDAR2LiDARCalibrationO3D:
 
     def setup_icp_controls(self, em, separation_height):
         """Setup ICP control section."""
-        icp_section = gui.CollapsableVert("Automatic Registration", 0.25 * em,
-                                         gui.Margins(em, 0, 0, 0))
+        icp_section = gui.CollapsableVert(
+            "Automatic Registration", 0.25 * em, gui.Margins(em, 0, 0, 0)
+        )
 
         # ICP parameters
         grid = gui.VGrid(2, 0.25 * em)
@@ -225,8 +231,9 @@ class LiDAR2LiDARCalibrationO3D:
 
     def setup_manual_controls(self, em, separation_height):
         """Setup manual adjustment controls."""
-        manual_section = gui.CollapsableVert("Manual Adjustment", 0.25 * em,
-                                            gui.Margins(em, 0, 0, 0))
+        manual_section = gui.CollapsableVert(
+            "Manual Adjustment", 0.25 * em, gui.Margins(em, 0, 0, 0)
+        )
 
         # Translation and rotation controls in table format
         # Translation section
@@ -311,10 +318,14 @@ class LiDAR2LiDARCalibrationO3D:
         x_buttons = gui.Horiz(0.1 * em)
         x_buttons.add_child(gui.Label("X:"))
         btn_x_minus = gui.Button("-")
-        btn_x_minus.set_on_clicked(lambda: self._adjust_translation('x', -self._trans_step.double_value))
+        btn_x_minus.set_on_clicked(
+            lambda: self._adjust_translation("x", -self._trans_step.double_value)
+        )
         x_buttons.add_child(btn_x_minus)
         btn_x_plus = gui.Button("+")
-        btn_x_plus.set_on_clicked(lambda: self._adjust_translation('x', self._trans_step.double_value))
+        btn_x_plus.set_on_clicked(
+            lambda: self._adjust_translation("x", self._trans_step.double_value)
+        )
         x_buttons.add_child(btn_x_plus)
         trans_column.add_child(x_buttons)
 
@@ -322,10 +333,14 @@ class LiDAR2LiDARCalibrationO3D:
         y_buttons = gui.Horiz(0.1 * em)
         y_buttons.add_child(gui.Label("Y:"))
         btn_y_minus = gui.Button("-")
-        btn_y_minus.set_on_clicked(lambda: self._adjust_translation('y', -self._trans_step.double_value))
+        btn_y_minus.set_on_clicked(
+            lambda: self._adjust_translation("y", -self._trans_step.double_value)
+        )
         y_buttons.add_child(btn_y_minus)
         btn_y_plus = gui.Button("+")
-        btn_y_plus.set_on_clicked(lambda: self._adjust_translation('y', self._trans_step.double_value))
+        btn_y_plus.set_on_clicked(
+            lambda: self._adjust_translation("y", self._trans_step.double_value)
+        )
         y_buttons.add_child(btn_y_plus)
         trans_column.add_child(y_buttons)
 
@@ -333,10 +348,14 @@ class LiDAR2LiDARCalibrationO3D:
         z_buttons = gui.Horiz(0.1 * em)
         z_buttons.add_child(gui.Label("Z:"))
         btn_z_minus = gui.Button("-")
-        btn_z_minus.set_on_clicked(lambda: self._adjust_translation('z', -self._trans_step.double_value))
+        btn_z_minus.set_on_clicked(
+            lambda: self._adjust_translation("z", -self._trans_step.double_value)
+        )
         z_buttons.add_child(btn_z_minus)
         btn_z_plus = gui.Button("+")
-        btn_z_plus.set_on_clicked(lambda: self._adjust_translation('z', self._trans_step.double_value))
+        btn_z_plus.set_on_clicked(
+            lambda: self._adjust_translation("z", self._trans_step.double_value)
+        )
         z_buttons.add_child(btn_z_plus)
         trans_column.add_child(z_buttons)
 
@@ -350,10 +369,14 @@ class LiDAR2LiDARCalibrationO3D:
         roll_buttons = gui.Horiz(0.1 * em)
         roll_buttons.add_child(gui.Label("Roll:"))
         btn_roll_minus = gui.Button("-")
-        btn_roll_minus.set_on_clicked(lambda: self._adjust_rotation('roll', -self._rot_step.double_value))
+        btn_roll_minus.set_on_clicked(
+            lambda: self._adjust_rotation("roll", -self._rot_step.double_value)
+        )
         roll_buttons.add_child(btn_roll_minus)
         btn_roll_plus = gui.Button("+")
-        btn_roll_plus.set_on_clicked(lambda: self._adjust_rotation('roll', self._rot_step.double_value))
+        btn_roll_plus.set_on_clicked(
+            lambda: self._adjust_rotation("roll", self._rot_step.double_value)
+        )
         roll_buttons.add_child(btn_roll_plus)
         rot_column.add_child(roll_buttons)
 
@@ -361,10 +384,14 @@ class LiDAR2LiDARCalibrationO3D:
         pitch_buttons = gui.Horiz(0.1 * em)
         pitch_buttons.add_child(gui.Label("Pitch:"))
         btn_pitch_minus = gui.Button("-")
-        btn_pitch_minus.set_on_clicked(lambda: self._adjust_rotation('pitch', -self._rot_step.double_value))
+        btn_pitch_minus.set_on_clicked(
+            lambda: self._adjust_rotation("pitch", -self._rot_step.double_value)
+        )
         pitch_buttons.add_child(btn_pitch_minus)
         btn_pitch_plus = gui.Button("+")
-        btn_pitch_plus.set_on_clicked(lambda: self._adjust_rotation('pitch', self._rot_step.double_value))
+        btn_pitch_plus.set_on_clicked(
+            lambda: self._adjust_rotation("pitch", self._rot_step.double_value)
+        )
         pitch_buttons.add_child(btn_pitch_plus)
         rot_column.add_child(pitch_buttons)
 
@@ -372,10 +399,14 @@ class LiDAR2LiDARCalibrationO3D:
         yaw_buttons = gui.Horiz(0.1 * em)
         yaw_buttons.add_child(gui.Label("Yaw:"))
         btn_yaw_minus = gui.Button("-")
-        btn_yaw_minus.set_on_clicked(lambda: self._adjust_rotation('yaw', -self._rot_step.double_value))
+        btn_yaw_minus.set_on_clicked(
+            lambda: self._adjust_rotation("yaw", -self._rot_step.double_value)
+        )
         yaw_buttons.add_child(btn_yaw_minus)
         btn_yaw_plus = gui.Button("+")
-        btn_yaw_plus.set_on_clicked(lambda: self._adjust_rotation('yaw', self._rot_step.double_value))
+        btn_yaw_plus.set_on_clicked(
+            lambda: self._adjust_rotation("yaw", self._rot_step.double_value)
+        )
         yaw_buttons.add_child(btn_yaw_plus)
         rot_column.add_child(yaw_buttons)
 
@@ -386,12 +417,10 @@ class LiDAR2LiDARCalibrationO3D:
         self._settings_panel.add_child(manual_section)
         self._settings_panel.add_fixed(separation_height)
 
-
     def setup_action_buttons(self, em, separation_height):
         """Setup action buttons."""
         # Create a vertical layout for both action buttons
-        action_section = gui.CollapsableVert("Actions", 0.25 * em,
-                                            gui.Margins(em, 0, 0, 0))
+        action_section = gui.CollapsableVert("Actions", 0.25 * em, gui.Margins(em, 0, 0, 0))
 
         # Add the reset button first (full width)
         reset_button = gui.Button("Reset to Initial Transform")
@@ -422,11 +451,9 @@ class LiDAR2LiDARCalibrationO3D:
             r.height,
             self._settings_panel.calc_preferred_size(
                 layout_context, gui.Widget.Constraints()
-            ).height
+            ).height,
         )
-        self._settings_panel.frame = gui.Rect(
-            r.get_right() - width, r.y, width, height
-        )
+        self._settings_panel.frame = gui.Rect(r.get_right() - width, r.y, width, height)
 
     def _on_show_source_changed(self, checked):
         """Handle source cloud visibility change."""
@@ -489,7 +516,9 @@ class LiDAR2LiDARCalibrationO3D:
         self.apply_current_transform()
 
         # Display results
-        result_text = f"P2Plane ICP: Fitness={reg_p2plane.fitness:.4f}, RMSE={reg_p2plane.inlier_rmse:.4f}"
+        result_text = (
+            f"P2Plane ICP: Fitness={reg_p2plane.fitness:.4f}, RMSE={reg_p2plane.inlier_rmse:.4f}"
+        )
         self._icp_result.text = result_text
 
     def _on_manual_transform_changed(self, value):
@@ -509,23 +538,23 @@ class LiDAR2LiDARCalibrationO3D:
 
     def _adjust_translation(self, axis, delta):
         """Adjust translation by delta amount."""
-        if axis == 'x':
+        if axis == "x":
             self._tx.double_value += delta
-        elif axis == 'y':
+        elif axis == "y":
             self._ty.double_value += delta
-        elif axis == 'z':
+        elif axis == "z":
             self._tz.double_value += delta
         self._on_manual_transform_changed(0)
 
     def _adjust_rotation(self, axis, delta):
         """Adjust rotation by delta amount."""
-        if axis == 'roll':
+        if axis == "roll":
             new_value = self._rx.double_value + delta
             self._rx.double_value = ((new_value + np.pi) % (2 * np.pi)) - np.pi
-        elif axis == 'pitch':
+        elif axis == "pitch":
             new_value = self._ry.double_value + delta
             self._ry.double_value = ((new_value + np.pi) % (2 * np.pi)) - np.pi
-        elif axis == 'yaw':
+        elif axis == "yaw":
             new_value = self._rz.double_value + delta
             self._rz.double_value = ((new_value + np.pi) % (2 * np.pi)) - np.pi
         self._on_manual_transform_changed(0)
@@ -584,7 +613,6 @@ class LiDAR2LiDARCalibrationO3D:
         self._ry.double_value = euler_angles[1]
         self._rz.double_value = euler_angles[2]
 
-
     def update_point_colors(self):
         """Update point cloud colors with uniform colors."""
         # Use uniform colors - blue for source, orange for target
@@ -617,20 +645,23 @@ class LiDAR2LiDARCalibrationO3D:
             self._scene.scene.add_geometry("target_cloud", self.target_cloud_transformed, mat)
 
         # Set up camera only on first update
-        if not hasattr(self, '_camera_initialized'):
+        if not hasattr(self, "_camera_initialized"):
             self._camera_initialized = True
             bounds = self._scene.scene.bounding_box
             if not bounds.is_empty():
                 self._scene.setup_camera(60, bounds, bounds.get_center())
-
 
     def run(self):
         """Run the calibration interface."""
         gui.Application.instance.run()
 
 
-def launch_lidar2lidar_calibration(pointcloud_msg, pointcloud2_msg, initial_transform=None, completion_callback=None):
+def launch_lidar2lidar_calibration(
+    pointcloud_msg, pointcloud2_msg, initial_transform=None, completion_callback=None
+):
     """Launch the LiDAR-to-LiDAR calibration interface."""
-    app = LiDAR2LiDARCalibrationO3D(pointcloud_msg, pointcloud2_msg, initial_transform, completion_callback)
+    app = LiDAR2LiDARCalibrationO3D(
+        pointcloud_msg, pointcloud2_msg, initial_transform, completion_callback
+    )
     app.run()
     return app.current_transform

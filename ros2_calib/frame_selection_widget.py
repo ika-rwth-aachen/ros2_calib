@@ -194,7 +194,6 @@ class FrameSelectionWidget(QWidget):
         q_image = QImage(img_rgb.data, width, height, bytes_per_line, QImage.Format_RGB888)
         pixmap = QPixmap.fromImage(q_image)
 
-
         # Image label
         image_label = QLabel()
         image_label.setPixmap(pixmap)

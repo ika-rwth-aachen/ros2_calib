@@ -119,7 +119,7 @@ def calibrate_dual_lidar(
     K,
     pnp_method=cv2.SOLVEPNP_ITERATIVE,
     lsq_method="lm",
-    lsq_verbose=2
+    lsq_verbose=2,
 ):
     """
     Calibrate dual LiDAR setup.
@@ -138,7 +138,9 @@ def calibrate_dual_lidar(
         print("Error: Need at least 3 LiDAR-to-LiDAR correspondences.")
         return master_to_camera, np.eye(4)
 
-    print(f"Step 2: Calibrating second LiDAR to master LiDAR using {len(lidar_lidar_correspondences)} correspondences...")
+    print(
+        f"Step 2: Calibrating second LiDAR to master LiDAR using {len(lidar_lidar_correspondences)} correspondences..."
+    )
 
     # Prepare 3D-3D correspondence data
     second_lidar_points = []
@@ -214,8 +216,9 @@ def solve_rigid_transform_3d(source_points, target_points):
     return T
 
 
-def global_dual_lidar_objective(params, master_cam_correspondences, second_cam_correspondences,
-                               lidar_lidar_correspondences, K):
+def global_dual_lidar_objective(
+    params, master_cam_correspondences, second_cam_correspondences, lidar_lidar_correspondences, K
+):
     """
     Global objective function for dual LiDAR calibration.
     Minimizes total reprojection error across all correspondence types.
@@ -243,7 +246,9 @@ def global_dual_lidar_objective(params, master_cam_correspondences, second_cam_c
         master_points_3d = np.array([c[1] for c in master_cam_correspondences], dtype=np.float32)
         master_points_2d = np.array([c[0] for c in master_cam_correspondences], dtype=np.float32)
 
-        master_points_proj, _ = cv2.projectPoints(master_points_3d, master_rvec, master_tvec, K, None)
+        master_points_proj, _ = cv2.projectPoints(
+            master_points_3d, master_rvec, master_tvec, K, None
+        )
         master_errors = (master_points_proj.reshape(-1, 2) - master_points_2d).ravel()
         errors.extend(master_errors)
 
@@ -252,7 +257,9 @@ def global_dual_lidar_objective(params, master_cam_correspondences, second_cam_c
         second_points_3d = np.array([c[1] for c in second_cam_correspondences], dtype=np.float32)
         second_points_2d = np.array([c[0] for c in second_cam_correspondences], dtype=np.float32)
 
-        second_points_proj, _ = cv2.projectPoints(second_points_3d, second_rvec, second_tvec, K, None)
+        second_points_proj, _ = cv2.projectPoints(
+            second_points_3d, second_rvec, second_tvec, K, None
+        )
         second_errors = (second_points_proj.reshape(-1, 2) - second_points_2d).ravel()
         errors.extend(second_errors)
 
@@ -296,7 +303,7 @@ def calibrate_dual_lidar_global(
     initial_master_transform=None,
     initial_second_transform=None,
     lsq_method="lm",
-    lsq_verbose=2
+    lsq_verbose=2,
 ):
     """
     Global dual LiDAR calibration using simultaneous optimization.
@@ -319,7 +326,9 @@ def calibrate_dual_lidar_global(
         print("Error: Need at least 4 second LiDAR-camera OR 3 LiDAR-LiDAR correspondences.")
         return np.eye(4), np.eye(4)
 
-    print(f"Optimizing with {master_count} master-cam, {second_count} second-cam, {lidar_count} lidar-lidar correspondences")
+    print(
+        f"Optimizing with {master_count} master-cam, {second_count} second-cam, {lidar_count} lidar-lidar correspondences"
+    )
 
     # Initialize parameters
     if initial_master_transform is not None:
@@ -337,12 +346,14 @@ def calibrate_dual_lidar_global(
         second_tvec_init = np.zeros(3)
 
     # Combined parameter vector: [master_rvec, master_tvec, second_rvec, second_tvec]
-    initial_params = np.concatenate([
-        master_rvec_init.ravel(),
-        master_tvec_init.ravel(),
-        second_rvec_init.ravel(),
-        second_tvec_init.ravel()
-    ])
+    initial_params = np.concatenate(
+        [
+            master_rvec_init.ravel(),
+            master_tvec_init.ravel(),
+            second_rvec_init.ravel(),
+            second_tvec_init.ravel(),
+        ]
+    )
 
     print(f"Initial parameters shape: {initial_params.shape}")
 
@@ -351,8 +362,12 @@ def calibrate_dual_lidar_global(
     result = least_squares(
         global_dual_lidar_objective,
         initial_params,
-        args=(master_cam_correspondences, second_cam_correspondences,
-              lidar_lidar_correspondences, K),
+        args=(
+            master_cam_correspondences,
+            second_cam_correspondences,
+            lidar_lidar_correspondences,
+            K,
+        ),
         method=lsq_method,
         verbose=lsq_verbose,
     )
@@ -378,8 +393,11 @@ def calibrate_dual_lidar_global(
 
     # Calculate final RMS error
     final_errors = global_dual_lidar_objective(
-        optimized_params, master_cam_correspondences, second_cam_correspondences,
-        lidar_lidar_correspondences, K
+        optimized_params,
+        master_cam_correspondences,
+        second_cam_correspondences,
+        lidar_lidar_correspondences,
+        K,
     )
     final_rms_error = np.sqrt(np.mean(final_errors**2))
 

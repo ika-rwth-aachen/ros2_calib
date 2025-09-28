@@ -237,24 +237,29 @@ class Vector3:
     def __init__(self, x=0.0, y=0.0, z=0.0):
         self.x, self.y, self.z = x, y, z
 
+
 class Quaternion:
     def __init__(self, x=0.0, y=0.0, z=0.0, w=1.0):
         self.x, self.y, self.z, self.w = x, y, z, w
 
+
 class Point:
     def __init__(self, x=0.0, y=0.0, z=0.0):
         self.x, self.y, self.z = x, y, z
+
 
 class Transform:
     def __init__(self, translation=None, rotation=None):
         self.translation = translation if translation is not None else Vector3()
         self.rotation = rotation if rotation is not None else Quaternion()
 
+
 class TransformStamped:
-    def __init__(self, header=None, child_frame_id='', transform=None):
+    def __init__(self, header=None, child_frame_id="", transform=None):
         self.header = header if header is not None else Header()
         self.child_frame_id = child_frame_id
         self.transform = transform if transform is not None else Transform()
+
 
 class TFMessage:
     def __init__(self, transforms=None):
@@ -296,18 +301,14 @@ def transform_to_numpy(transform: Transform) -> np.ndarray:
     """
     Converts a ROS Transform message to a 4x4 NumPy transformation matrix.
     """
-    translation = np.array([
-        transform.translation.x,
-        transform.translation.y,
-        transform.translation.z
-    ], dtype=np.float64)
+    translation = np.array(
+        [transform.translation.x, transform.translation.y, transform.translation.z],
+        dtype=np.float64,
+    )
 
-    rotation = Rotation.from_quat([
-        transform.rotation.x,
-        transform.rotation.y,
-        transform.rotation.z,
-        transform.rotation.w
-    ])
+    rotation = Rotation.from_quat(
+        [transform.rotation.x, transform.rotation.y, transform.rotation.z, transform.rotation.w]
+    )
 
     # Create an identity matrix with the correct data type
     transform_matrix = np.identity(4, dtype=np.float64)

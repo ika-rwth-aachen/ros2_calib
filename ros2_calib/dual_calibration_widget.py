@@ -62,9 +62,18 @@ from .lidar_cleaner import LiDARCleaner
 class DualCalibrationWidget(QWidget):
     calibration_completed = Signal(object)  # Signal to emit calibrated transforms
 
-    def __init__(self, image_msg, master_pointcloud_msg, second_pointcloud_msg, camerainfo_msg,
-                 ros_utils, initial_master_transform, initial_second_transform,
-                 master_frame_id, second_frame_id):
+    def __init__(
+        self,
+        image_msg,
+        master_pointcloud_msg,
+        second_pointcloud_msg,
+        camerainfo_msg,
+        ros_utils,
+        initial_master_transform,
+        initial_second_transform,
+        master_frame_id,
+        second_frame_id,
+    ):
         super().__init__()
 
         # Store messages and configurations
@@ -77,7 +86,7 @@ class DualCalibrationWidget(QWidget):
         # Frame IDs
         self.master_frame_id = master_frame_id
         self.second_frame_id = second_frame_id
-        self.camera_frame_id = getattr(camerainfo_msg.header, 'frame_id', 'camera_optical_frame')
+        self.camera_frame_id = getattr(camerainfo_msg.header, "frame_id", "camera_optical_frame")
 
         # Display names for UI
         self.master_display_name = f"{self.master_frame_id} (Master)"
@@ -180,10 +189,22 @@ class DualCalibrationWidget(QWidget):
 
         # Master colormap
         self.master_colormap_combo = QComboBox()
-        self.master_colormap_combo.addItems([
-            "autumn", "jet", "winter", "summer", "spring", "hot", "magma",
-            "inferno", "Spectral", "RdYlGn", "viridis", "plasma"
-        ])
+        self.master_colormap_combo.addItems(
+            [
+                "autumn",
+                "jet",
+                "winter",
+                "summer",
+                "spring",
+                "hot",
+                "magma",
+                "inferno",
+                "Spectral",
+                "RdYlGn",
+                "viridis",
+                "plasma",
+            ]
+        )
         self.master_colormap_combo.setCurrentText("autumn")
         self.master_colormap_combo.currentTextChanged.connect(self.update_master_visualization)
         master_layout.addRow("Colormap:", self.master_colormap_combo)
@@ -191,7 +212,9 @@ class DualCalibrationWidget(QWidget):
         # Master colorization mode
         self.master_colorization_mode_combo = QComboBox()
         self.master_colorization_mode_combo.addItems(["Intensity", "Distance"])
-        self.master_colorization_mode_combo.currentTextChanged.connect(self.update_master_visualization)
+        self.master_colorization_mode_combo.currentTextChanged.connect(
+            self.update_master_visualization
+        )
         master_layout.addRow("Color Mode:", self.master_colorization_mode_combo)
 
         # Master value ranges
@@ -208,7 +231,9 @@ class DualCalibrationWidget(QWidget):
         master_layout.addRow("Max Value:", self.master_max_value_spinbox)
 
         # Master occlusion cleaning
-        self.master_clean_occlusion_button = QPushButton(f"Clean {self.master_display_name} Occluded Points")
+        self.master_clean_occlusion_button = QPushButton(
+            f"Clean {self.master_display_name} Occluded Points"
+        )
         self.master_clean_occlusion_button.clicked.connect(self.clean_master_occlusion)
         master_layout.addRow(self.master_clean_occlusion_button)
 
@@ -233,10 +258,22 @@ class DualCalibrationWidget(QWidget):
 
         # Second colormap
         self.second_colormap_combo = QComboBox()
-        self.second_colormap_combo.addItems([
-            "autumn", "jet", "winter", "summer", "spring", "hot", "magma",
-            "inferno", "Spectral", "RdYlGn", "viridis", "plasma"
-        ])
+        self.second_colormap_combo.addItems(
+            [
+                "autumn",
+                "jet",
+                "winter",
+                "summer",
+                "spring",
+                "hot",
+                "magma",
+                "inferno",
+                "Spectral",
+                "RdYlGn",
+                "viridis",
+                "plasma",
+            ]
+        )
         self.second_colormap_combo.setCurrentText("plasma")
         self.second_colormap_combo.currentTextChanged.connect(self.update_second_visualization)
         second_layout.addRow("Colormap:", self.second_colormap_combo)
@@ -244,7 +281,9 @@ class DualCalibrationWidget(QWidget):
         # Second colorization mode
         self.second_colorization_mode_combo = QComboBox()
         self.second_colorization_mode_combo.addItems(["Intensity", "Distance"])
-        self.second_colorization_mode_combo.currentTextChanged.connect(self.update_second_visualization)
+        self.second_colorization_mode_combo.currentTextChanged.connect(
+            self.update_second_visualization
+        )
         second_layout.addRow("Color Mode:", self.second_colorization_mode_combo)
 
         # Second value ranges
@@ -261,7 +300,9 @@ class DualCalibrationWidget(QWidget):
         second_layout.addRow("Max Value:", self.second_max_value_spinbox)
 
         # Second occlusion cleaning
-        self.second_clean_occlusion_button = QPushButton(f"Clean {self.second_display_name} Occluded Points")
+        self.second_clean_occlusion_button = QPushButton(
+            f"Clean {self.second_display_name} Occluded Points"
+        )
         self.second_clean_occlusion_button.clicked.connect(self.clean_second_occlusion)
         second_layout.addRow(self.second_clean_occlusion_button)
 
@@ -278,11 +319,13 @@ class DualCalibrationWidget(QWidget):
         mode_layout = QVBoxLayout(mode_group)
 
         self.correspondence_mode_combo = QComboBox()
-        self.correspondence_mode_combo.addItems([
-            f"{self.master_display_name} ↔ Camera",
-            f"{self.second_display_name} ↔ Camera",
-            f"{self.second_display_name} ↔ {self.master_display_name}"
-        ])
+        self.correspondence_mode_combo.addItems(
+            [
+                f"{self.master_display_name} ↔ Camera",
+                f"{self.second_display_name} ↔ Camera",
+                f"{self.second_display_name} ↔ {self.master_display_name}",
+            ]
+        )
         mode_layout.addWidget(self.correspondence_mode_combo)
 
         self.add_corr_button = QPushButton("Add Correspondence")
@@ -306,7 +349,9 @@ class DualCalibrationWidget(QWidget):
         lists_layout.addWidget(master_cam_label)
         self.master_cam_list_widget = QListWidget()
         self.master_cam_list_widget.setMaximumHeight(100)
-        self.master_cam_list_widget.currentItemChanged.connect(self.highlight_master_cam_correspondence)
+        self.master_cam_list_widget.currentItemChanged.connect(
+            self.highlight_master_cam_correspondence
+        )
         lists_layout.addWidget(self.master_cam_list_widget)
 
         # Second-Camera correspondences
@@ -314,7 +359,9 @@ class DualCalibrationWidget(QWidget):
         lists_layout.addWidget(second_cam_label)
         self.second_cam_list_widget = QListWidget()
         self.second_cam_list_widget.setMaximumHeight(100)
-        self.second_cam_list_widget.currentItemChanged.connect(self.highlight_second_cam_correspondence)
+        self.second_cam_list_widget.currentItemChanged.connect(
+            self.highlight_second_cam_correspondence
+        )
         lists_layout.addWidget(self.second_cam_list_widget)
 
         # LiDAR-LiDAR correspondences
@@ -488,7 +535,9 @@ class DualCalibrationWidget(QWidget):
             row_text = "  ".join(f"{K[i, j]:8.2f}" for j in range(3))
             display_text += f"[{row_text}]\n"
 
-        display_text += f"\nImage Size: {self.camerainfo_msg.width} x {self.camerainfo_msg.height}\n"
+        display_text += (
+            f"\nImage Size: {self.camerainfo_msg.width} x {self.camerainfo_msg.height}\n"
+        )
         display_text += f"Distortion: {self.camerainfo_msg.distortion_model}"
 
         fx, fy = K[0, 0], K[1, 1]
@@ -520,7 +569,7 @@ class DualCalibrationWidget(QWidget):
             # Update min/max values
             self.update_master_min_max_values()
 
-        if not hasattr(self, 'master_points_xyz') or self.master_points_xyz.shape[0] == 0:
+        if not hasattr(self, "master_points_xyz") or self.master_points_xyz.shape[0] == 0:
             return
 
         # Remove existing visualization
@@ -567,7 +616,7 @@ class DualCalibrationWidget(QWidget):
             self.master_colormap_combo.currentText(),
             self.master_colorization_mode_combo.currentText(),
             self.master_min_value_spinbox.value(),
-            self.master_max_value_spinbox.value()
+            self.master_max_value_spinbox.value(),
         )
         colors[:, 3] = 0.8  # Alpha for master
 
@@ -599,7 +648,7 @@ class DualCalibrationWidget(QWidget):
             # Update min/max values
             self.update_second_min_max_values()
 
-        if not hasattr(self, 'second_points_xyz') or self.second_points_xyz.shape[0] == 0:
+        if not hasattr(self, "second_points_xyz") or self.second_points_xyz.shape[0] == 0:
             return
 
         # Remove existing visualization
@@ -646,7 +695,7 @@ class DualCalibrationWidget(QWidget):
             self.second_colormap_combo.currentText(),
             self.second_colorization_mode_combo.currentText(),
             self.second_min_value_spinbox.value(),
-            self.second_max_value_spinbox.value()
+            self.second_max_value_spinbox.value(),
         )
         colors[:, 3] = 0.7  # Slightly more transparent for second
 
@@ -656,8 +705,16 @@ class DualCalibrationWidget(QWidget):
         )
         self.scene.addItem(self.second_point_cloud_item)
 
-    def create_colors(self, points_proj, intensities, points_cam, colormap_name,
-                     colorization_mode, min_val, max_val):
+    def create_colors(
+        self,
+        points_proj,
+        intensities,
+        points_cam,
+        colormap_name,
+        colorization_mode,
+        min_val,
+        max_val,
+    ):
         """Create colors for point cloud visualization."""
         cmap = cm.get_cmap(colormap_name)
 
@@ -671,12 +728,12 @@ class DualCalibrationWidget(QWidget):
 
     def update_master_min_max_values(self):
         """Update min/max values for master point cloud."""
-        if not hasattr(self, 'master_points_xyz') or self.master_points_xyz.shape[0] == 0:
+        if not hasattr(self, "master_points_xyz") or self.master_points_xyz.shape[0] == 0:
             return
 
         colorization_mode = self.master_colorization_mode_combo.currentText()
         if colorization_mode == "Distance":
-            if hasattr(self, 'master_valid_indices') and len(self.master_valid_indices) > 0:
+            if hasattr(self, "master_valid_indices") and len(self.master_valid_indices) > 0:
                 tvec = self.master_extrinsics[:3, 3]
                 points_cam = (self.master_extrinsics[:3, :3] @ self.master_points_xyz.T).T + tvec
                 valid_points_cam = points_cam[self.master_valid_indices]
@@ -685,19 +742,19 @@ class DualCalibrationWidget(QWidget):
                 self.master_min_value_spinbox.setValue(min_dist)
                 self.master_max_value_spinbox.setValue(max_dist)
         else:  # Intensity
-            if hasattr(self, 'master_intensities') and self.master_intensities.size > 0:
+            if hasattr(self, "master_intensities") and self.master_intensities.size > 0:
                 min_i, max_i = np.quantile(self.master_intensities, [0.01, 0.90])
                 self.master_min_value_spinbox.setValue(min_i)
                 self.master_max_value_spinbox.setValue(max_i)
 
     def update_second_min_max_values(self):
         """Update min/max values for second point cloud."""
-        if not hasattr(self, 'second_points_xyz') or self.second_points_xyz.shape[0] == 0:
+        if not hasattr(self, "second_points_xyz") or self.second_points_xyz.shape[0] == 0:
             return
 
         colorization_mode = self.second_colorization_mode_combo.currentText()
         if colorization_mode == "Distance":
-            if hasattr(self, 'second_valid_indices') and len(self.second_valid_indices) > 0:
+            if hasattr(self, "second_valid_indices") and len(self.second_valid_indices) > 0:
                 tvec = self.second_extrinsics[:3, 3]
                 points_cam = (self.second_extrinsics[:3, :3] @ self.second_points_xyz.T).T + tvec
                 valid_points_cam = points_cam[self.second_valid_indices]
@@ -706,7 +763,7 @@ class DualCalibrationWidget(QWidget):
                 self.second_min_value_spinbox.setValue(min_dist)
                 self.second_max_value_spinbox.setValue(max_dist)
         else:  # Intensity
-            if hasattr(self, 'second_intensities') and self.second_intensities.size > 0:
+            if hasattr(self, "second_intensities") and self.second_intensities.size > 0:
                 min_i, max_i = np.quantile(self.second_intensities, [0.01, 0.90])
                 self.second_min_value_spinbox.setValue(min_i)
                 self.second_max_value_spinbox.setValue(max_i)
@@ -733,7 +790,9 @@ class DualCalibrationWidget(QWidget):
         """Update manual input fields from current transformations."""
         # Master transform
         master_tvec = self.master_extrinsics[:3, 3]
-        master_rpy = Rotation.from_matrix(self.master_extrinsics[:3, :3]).as_euler("xyz", degrees=True)
+        master_rpy = Rotation.from_matrix(self.master_extrinsics[:3, :3]).as_euler(
+            "xyz", degrees=True
+        )
 
         self.master_dof_widgets["x"].setValue(master_tvec[0])
         self.master_dof_widgets["y"].setValue(master_tvec[1])
@@ -744,7 +803,9 @@ class DualCalibrationWidget(QWidget):
 
         # Second transform
         second_tvec = self.second_extrinsics[:3, 3]
-        second_rpy = Rotation.from_matrix(self.second_extrinsics[:3, :3]).as_euler("xyz", degrees=True)
+        second_rpy = Rotation.from_matrix(self.second_extrinsics[:3, :3]).as_euler(
+            "xyz", degrees=True
+        )
 
         self.second_dof_widgets["x"].setValue(second_tvec[0])
         self.second_dof_widgets["y"].setValue(second_tvec[1])
@@ -776,7 +837,9 @@ class DualCalibrationWidget(QWidget):
 
         extrinsics = np.identity(4)
         extrinsics[:3, 3] = [x, y, z]
-        extrinsics[:3, :3] = Rotation.from_euler("xyz", [roll, pitch, yaw], degrees=True).as_matrix()
+        extrinsics[:3, :3] = Rotation.from_euler(
+            "xyz", [roll, pitch, yaw], degrees=True
+        ).as_matrix()
 
         if prefix == "master":
             self.master_extrinsics = extrinsics
@@ -817,7 +880,9 @@ class DualCalibrationWidget(QWidget):
             num_removed = np.sum(~self.second_occlusion_mask)
             self.project_second_pointcloud(re_read_cloud=False)
 
-        print(f"Occlusion cleaning finished for {prefix}. {num_removed} points identified as occluded.")
+        print(
+            f"Occlusion cleaning finished for {prefix}. {num_removed} points identified as occluded."
+        )
         self.progress_bar.setVisible(False)
 
     def reset_calibration_state(self):
@@ -948,9 +1013,12 @@ class DualCalibrationWidget(QWidget):
         if dist > self.master_point_size_spinbox.value() * 1.5:
             return
 
-        self.toggle_point_selection(idx, self.master_points_proj_valid,
-                                  self.master_point_size_spinbox.value(),
-                                  QColor(0, 255, 0))  # Green for master
+        self.toggle_point_selection(
+            idx,
+            self.master_points_proj_valid,
+            self.master_point_size_spinbox.value(),
+            QColor(0, 255, 0),
+        )  # Green for master
 
     def handle_second_point_selection(self, pos):
         """Handle second LiDAR point selection."""
@@ -964,9 +1032,12 @@ class DualCalibrationWidget(QWidget):
 
         # Offset index to distinguish from master indices
         offset_idx = idx + 100000  # Large offset to avoid conflicts
-        self.toggle_point_selection(offset_idx, self.second_points_proj_valid,
-                                  self.second_point_size_spinbox.value(),
-                                  QColor(255, 0, 255))  # Magenta for second
+        self.toggle_point_selection(
+            offset_idx,
+            self.second_points_proj_valid,
+            self.second_point_size_spinbox.value(),
+            QColor(255, 0, 255),
+        )  # Magenta for second
 
     def handle_second_lidar_selection(self, pos):
         """Handle second LiDAR point selection for LiDAR-to-LiDAR correspondence."""
@@ -1002,9 +1073,12 @@ class DualCalibrationWidget(QWidget):
         if dist > self.master_point_size_spinbox.value() * 1.5:
             return
 
-        self.toggle_point_selection(idx, self.master_points_proj_valid,
-                                  self.master_point_size_spinbox.value(),
-                                  QColor(0, 255, 0))  # Green for master
+        self.toggle_point_selection(
+            idx,
+            self.master_points_proj_valid,
+            self.master_point_size_spinbox.value(),
+            QColor(0, 255, 0),
+        )  # Green for master
 
     def toggle_point_selection(self, idx, points_proj, point_size, color):
         """Toggle point selection state."""
@@ -1023,8 +1097,7 @@ class DualCalibrationWidget(QWidget):
                 point_2d = points_proj[idx]
 
             item = QGraphicsEllipseItem(
-                point_2d[0] - point_size / 2, point_2d[1] - point_size / 2,
-                point_size, point_size
+                point_2d[0] - point_size / 2, point_2d[1] - point_size / 2, point_size, point_size
             )
             item.setPen(QPen(color, 2))
             item.setBrush(QBrush(color))
@@ -1065,7 +1138,9 @@ class DualCalibrationWidget(QWidget):
             return
 
         # Get selected 3D points (should be master points only)
-        selected_indices = [item.data(0) for item in self.current_3d_selection if item.data(0) < 100000]
+        selected_indices = [
+            item.data(0) for item in self.current_3d_selection if item.data(0) < 100000
+        ]
         if not selected_indices:
             return
 
@@ -1083,7 +1158,9 @@ class DualCalibrationWidget(QWidget):
             return
 
         # Get selected 3D points (should be second points only, with offset)
-        selected_indices = [item.data(0) - 100000 for item in self.current_3d_selection if item.data(0) >= 100000]
+        selected_indices = [
+            item.data(0) - 100000 for item in self.current_3d_selection if item.data(0) >= 100000
+        ]
         if not selected_indices:
             return
 
@@ -1097,11 +1174,13 @@ class DualCalibrationWidget(QWidget):
 
     def finalize_lidar_lidar_correspondence(self):
         """Finalize second LiDAR to master LiDAR correspondence."""
-        if not hasattr(self, 'selected_second_lidar_point'):
+        if not hasattr(self, "selected_second_lidar_point"):
             return
 
         # Get selected master points
-        selected_indices = [item.data(0) for item in self.current_3d_selection if item.data(0) < 100000]
+        selected_indices = [
+            item.data(0) for item in self.current_3d_selection if item.data(0) < 100000
+        ]
         if not selected_indices:
             return
 
@@ -1117,10 +1196,10 @@ class DualCalibrationWidget(QWidget):
         }
 
         # Clean up selection attributes
-        if hasattr(self, 'selected_second_lidar_point'):
-            delattr(self, 'selected_second_lidar_point')
-        if hasattr(self, 'selected_second_lidar_3d_idx'):
-            delattr(self, 'selected_second_lidar_3d_idx')
+        if hasattr(self, "selected_second_lidar_point"):
+            delattr(self, "selected_second_lidar_point")
+        if hasattr(self, "selected_second_lidar_3d_idx"):
+            delattr(self, "selected_second_lidar_3d_idx")
 
     def update_correspondence_lists(self):
         """Update all correspondence list widgets."""
@@ -1190,9 +1269,13 @@ class DualCalibrationWidget(QWidget):
         self.draw_cross_marker(QPointF(p2d_key[0], p2d_key[1]), QColor(Colors.CORRESPONDENCE_2D))
 
         # Highlight 3D points
-        self.highlight_3d_points(corr["3d_points_indices"], self.master_valid_indices,
-                               self.master_points_proj_valid, self.master_point_size_spinbox.value(),
-                               QColor(0, 255, 0))
+        self.highlight_3d_points(
+            corr["3d_points_indices"],
+            self.master_valid_indices,
+            self.master_points_proj_valid,
+            self.master_point_size_spinbox.value(),
+            QColor(0, 255, 0),
+        )
 
     def highlight_second_cam_corr(self, p2d_key):
         """Highlight second-camera correspondence."""
@@ -1204,9 +1287,13 @@ class DualCalibrationWidget(QWidget):
         self.draw_cross_marker(QPointF(p2d_key[0], p2d_key[1]), QColor(Colors.CORRESPONDENCE_2D))
 
         # Highlight 3D points
-        self.highlight_3d_points(corr["3d_points_indices"], self.second_valid_indices,
-                               self.second_points_proj_valid, self.second_point_size_spinbox.value(),
-                               QColor(255, 0, 255))
+        self.highlight_3d_points(
+            corr["3d_points_indices"],
+            self.second_valid_indices,
+            self.second_points_proj_valid,
+            self.second_point_size_spinbox.value(),
+            QColor(255, 0, 255),
+        )
 
     def highlight_lidar_lidar_corr(self, second_3d_key):
         """Highlight LiDAR-LiDAR correspondence."""
@@ -1216,21 +1303,29 @@ class DualCalibrationWidget(QWidget):
 
         # Highlight second LiDAR point
         second_idx = corr["second_lidar_index"]
-        if hasattr(self, 'second_valid_indices') and hasattr(self, 'second_points_proj_valid'):
+        if hasattr(self, "second_valid_indices") and hasattr(self, "second_points_proj_valid"):
             second_valid_idx_map = {
                 orig_idx: valid_idx for valid_idx, orig_idx in enumerate(self.second_valid_indices)
             }
             second_valid_idx = second_valid_idx_map.get(second_idx)
-            if second_valid_idx is not None and second_valid_idx < len(self.second_points_proj_valid):
+            if second_valid_idx is not None and second_valid_idx < len(
+                self.second_points_proj_valid
+            ):
                 point_2d = self.second_points_proj_valid[second_valid_idx]
                 self.draw_cross_marker(QPointF(point_2d[0], point_2d[1]), QColor(255, 0, 255))
 
         # Highlight master LiDAR points
-        self.highlight_3d_points(corr["master_3d_points_indices"], self.master_valid_indices,
-                               self.master_points_proj_valid, self.master_point_size_spinbox.value(),
-                               QColor(0, 255, 0))
+        self.highlight_3d_points(
+            corr["master_3d_points_indices"],
+            self.master_valid_indices,
+            self.master_points_proj_valid,
+            self.master_point_size_spinbox.value(),
+            QColor(0, 255, 0),
+        )
 
-    def highlight_3d_points(self, original_indices, valid_indices, points_proj_valid, point_size, color):
+    def highlight_3d_points(
+        self, original_indices, valid_indices, points_proj_valid, point_size, color
+    ):
         """Highlight 3D points."""
         original_to_valid_idx_map = {
             orig_idx: valid_idx for valid_idx, orig_idx in enumerate(valid_indices)
@@ -1290,11 +1385,15 @@ class DualCalibrationWidget(QWidget):
         lidar_lidar_count = len(self.lidar_to_lidar_correspondences)
 
         if master_cam_count < 4:
-            self.results_label.setText(f"Error: Need at least 4 {self.master_display_name} ↔ Camera correspondences")
+            self.results_label.setText(
+                f"Error: Need at least 4 {self.master_display_name} ↔ Camera correspondences"
+            )
             return
 
         if second_cam_count < 4 and lidar_lidar_count < 3:
-            self.results_label.setText(f"Error: Need at least 4 {self.second_display_name} ↔ Camera OR 3 LiDAR ↔ LiDAR correspondences")
+            self.results_label.setText(
+                f"Error: Need at least 4 {self.second_display_name} ↔ Camera OR 3 LiDAR ↔ LiDAR correspondences"
+            )
             return
 
         self.progress_bar.setVisible(True)
@@ -1305,30 +1404,44 @@ class DualCalibrationWidget(QWidget):
             K = np.array(self.camerainfo_msg.k).reshape(3, 3)
 
             # Prepare master LiDAR to camera correspondences
-            master_cam_corr = [(p2d, corr["3d_mean"]) for p2d, corr in self.master_cam_correspondences.items()]
+            master_cam_corr = [
+                (p2d, corr["3d_mean"]) for p2d, corr in self.master_cam_correspondences.items()
+            ]
 
             # Use global optimization for best results
-            second_cam_corr = [(p2d, corr["3d_mean"]) for p2d, corr in self.second_cam_correspondences.items()]
+            second_cam_corr = [
+                (p2d, corr["3d_mean"]) for p2d, corr in self.second_cam_correspondences.items()
+            ]
 
             print("[DEBUG] Using global dual LiDAR optimization")
-            print(f"[DEBUG] Master-cam: {master_cam_count}, Second-cam: {second_cam_count}, LiDAR-LiDAR: {lidar_lidar_count}")
+            print(
+                f"[DEBUG] Master-cam: {master_cam_count}, Second-cam: {second_cam_count}, LiDAR-LiDAR: {lidar_lidar_count}"
+            )
 
-            self.master_extrinsics, self.second_extrinsics = calibration.calibrate_dual_lidar_global(
-                master_cam_corr,
-                second_cam_corr,
-                self.lidar_to_lidar_correspondences,
-                K,
-                self.master_extrinsics,  # Use current transforms as initial guess
-                self.second_extrinsics,
-                lsq_method
+            self.master_extrinsics, self.second_extrinsics = (
+                calibration.calibrate_dual_lidar_global(
+                    master_cam_corr,
+                    second_cam_corr,
+                    self.lidar_to_lidar_correspondences,
+                    K,
+                    self.master_extrinsics,  # Use current transforms as initial guess
+                    self.second_extrinsics,
+                    lsq_method,
+                )
             )
 
             if second_cam_count >= 4 and lidar_lidar_count >= 3:
-                self.results_label.setText("Global optimization completed using all correspondence types")
+                self.results_label.setText(
+                    "Global optimization completed using all correspondence types"
+                )
             elif second_cam_count >= 4:
-                self.results_label.setText("Global optimization completed using direct camera correspondences")
+                self.results_label.setText(
+                    "Global optimization completed using direct camera correspondences"
+                )
             elif lidar_lidar_count >= 3:
-                self.results_label.setText("Global optimization completed using LiDAR-to-LiDAR correspondences")
+                self.results_label.setText(
+                    "Global optimization completed using LiDAR-to-LiDAR correspondences"
+                )
             else:
                 self.results_label.setText("Calibration completed with limited correspondences")
 
@@ -1347,12 +1460,12 @@ class DualCalibrationWidget(QWidget):
     def view_calibration_results(self):
         """Emit calibration results."""
         calibration_results = {
-            'mode': 'dual_lidar',
-            'master_frame_id': self.master_frame_id,
-            'second_frame_id': self.second_frame_id,
-            'camera_frame_id': self.camera_frame_id,
-            'master_to_camera': self.master_extrinsics,
-            'second_to_camera': self.second_extrinsics,
+            "mode": "dual_lidar",
+            "master_frame_id": self.master_frame_id,
+            "second_frame_id": self.second_frame_id,
+            "camera_frame_id": self.camera_frame_id,
+            "master_to_camera": self.master_extrinsics,
+            "second_to_camera": self.second_extrinsics,
         }
 
         self.calibration_completed.emit(calibration_results)

@@ -41,12 +41,14 @@ def get_topic_info(bag_file, ros_version="JAZZY") -> List[tuple]:
             topics.append((conn.topic, conn.msgtype, conn.msgcount))
     return topics
 
+
 def get_total_message_count(bag_file, ros_version="JAZZY") -> int:
     """Get total message count from bag file."""
     ros_store = getattr(Stores, f"ROS2_{ros_version}")
     typestore = get_typestore(ros_store)
     with AnyReader([Path(bag_file).parent], default_typestore=typestore) as reader:
         return sum(conn.msgcount for conn in reader.connections)
+
 
 def iterate_all_messages(bag_file: str, ros_version: str = "JAZZY"):
     """Generator to iterate through all messages in the rosbag efficiently."""
@@ -57,6 +59,7 @@ def iterate_all_messages(bag_file: str, ros_version: str = "JAZZY"):
             msg = reader.deserialize(rawdata, connection.msgtype)
             yield timestamp, connection.topic, msg
 
+
 def combine_tf_static_messages(tf_messages: List[Any]) -> Optional[Any]:
     """Combine multiple tf_static messages into one composite message."""
     if not tf_messages:
@@ -65,19 +68,20 @@ def combine_tf_static_messages(tf_messages: List[Any]) -> Optional[Any]:
         return tf_messages[0]
 
     base_message = tf_messages[0]
-    all_transforms = list(getattr(base_message, 'transforms', []))
+    all_transforms = list(getattr(base_message, "transforms", []))
     seen = {(tf.header.frame_id, tf.child_frame_id) for tf in all_transforms}
 
     for msg in tf_messages[1:]:
-        for tf in getattr(msg, 'transforms', []):
+        for tf in getattr(msg, "transforms", []):
             key = (tf.header.frame_id, tf.child_frame_id)
             if key not in seen:
                 all_transforms.append(tf)
                 seen.add(key)
 
-    if hasattr(base_message, 'transforms'):
+    if hasattr(base_message, "transforms"):
         base_message.transforms = all_transforms
     return base_message
+
 
 # --- CORRECTED ROBUST STREAMING SYNCHRONIZATION LOGIC ---
 def read_synchronized_messages_streaming(
@@ -98,14 +102,14 @@ def read_synchronized_messages_streaming(
     # Normalize the target topic names by removing any leading slash
     topic1 = list(sensor_topics.keys())[0]
     topic2 = list(sensor_topics.keys())[1]
-    topic1_norm = topic1.lstrip('/')
-    topic2_norm = topic2.lstrip('/')
+    topic1_norm = topic1.lstrip("/")
+    topic2_norm = topic2.lstrip("/")
 
     if progress_callback:
         progress_callback.emit(10, f"Synchronizing {topic1} and {topic2}...")
 
     best_pair = None
-    min_diff = float('inf')
+    min_diff = float("inf")
 
     ros_store = getattr(Stores, f"ROS2_{ros_version}")
     typestore = get_typestore(ros_store)
@@ -114,7 +118,7 @@ def read_synchronized_messages_streaming(
         # *** FIX: Find connections by comparing normalized topic names ***
         conn1, conn2 = None, None
         for c in reader.connections:
-            normalized_conn_topic = c.topic.lstrip('/')
+            normalized_conn_topic = c.topic.lstrip("/")
             if normalized_conn_topic == topic1_norm:
                 conn1 = c
             elif normalized_conn_topic == topic2_norm:
@@ -150,7 +154,7 @@ def read_synchronized_messages_streaming(
                     min_diff = diff
                     best_pair = {
                         topic1: reader.deserialize(raw_msg1, conn1.msgtype),
-                        topic2: reader.deserialize(raw_msg2, conn2.msgtype)
+                        topic2: reader.deserialize(raw_msg2, conn2.msgtype),
                     }
                 try:
                     _, t1, raw_msg1 = next(iter1)
@@ -214,7 +218,9 @@ def read_all_messages_optimized(
         processed_count += 1
         if progress_callback and total_messages and processed_count % 100 == 0:
             progress = int((processed_count / total_messages) * 70) + 20
-            progress_callback.emit(min(progress, 90), f"Sampling frames {processed_count}/{total_messages}...")
+            progress_callback.emit(
+                min(progress, 90), f"Sampling frames {processed_count}/{total_messages}..."
+            )
 
         if topic in topics_to_read:
             if "tf_static" in topic:
@@ -222,8 +228,16 @@ def read_all_messages_optimized(
             elif topic in sensor_topics:
                 msg_counters[topic] += 1
                 interval = sampling_intervals.get(topic, 1)
-                if (msg_counters[topic] - 1) % interval == 0 and len(collected_samples[topic]) < frame_samples:
-                    collected_samples[topic].append({"timestamp": timestamp, "data": msg_data, "topic_type": topics_to_read[topic]})
+                if (msg_counters[topic] - 1) % interval == 0 and len(
+                    collected_samples[topic]
+                ) < frame_samples:
+                    collected_samples[topic].append(
+                        {
+                            "timestamp": timestamp,
+                            "data": msg_data,
+                            "topic_type": topics_to_read[topic],
+                        }
+                    )
 
     messages["frame_samples"] = collected_samples
     if tf_static_messages:
@@ -232,7 +246,9 @@ def read_all_messages_optimized(
             messages[tf_topic] = combine_tf_static_messages(tf_static_messages)
 
     if progress_callback:
-        progress_callback.emit(90, f"Collected {sum(len(s) for s in collected_samples.values())} frame samples.")
+        progress_callback.emit(
+            90, f"Collected {sum(len(s) for s in collected_samples.values())} frame samples."
+        )
     return messages
 
 
@@ -245,7 +261,8 @@ def convert_to_mock(raw_msg, msg_type):
             encoding=raw_msg.encoding,
             is_bigendian=raw_msg.is_bigendian,
             step=raw_msg.step,
-            data=raw_msg.data)
+            data=raw_msg.data,
+        )
     if msg_type == "sensor_msgs/msg/CompressedImage":
         # Create a mock CompressedImage with the necessary attributes
         mock_img = ros_utils.Image(
@@ -253,14 +270,17 @@ def convert_to_mock(raw_msg, msg_type):
             encoding=raw_msg.format,
             data=raw_msg.data,
             height=0,  # CompressedImages don't have height/width in the message
-            width=0,   # These will be determined when the image is decoded
+            width=0,  # These will be determined when the image is decoded
             is_bigendian=False,
-            step=0
+            step=0,
         )
         mock_img._type = "sensor_msgs/msg/CompressedImage"
         return mock_img
     elif msg_type == "sensor_msgs/msg/PointCloud2":
-        fields = [ros_utils.PointField(name=f.name, offset=f.offset, datatype=f.datatype, count=f.count) for f in raw_msg.fields]
+        fields = [
+            ros_utils.PointField(name=f.name, offset=f.offset, datatype=f.datatype, count=f.count)
+            for f in raw_msg.fields
+        ]
         return ros_utils.PointCloud2(
             header=raw_msg.header,
             height=raw_msg.height,
@@ -270,7 +290,8 @@ def convert_to_mock(raw_msg, msg_type):
             point_step=raw_msg.point_step,
             row_step=raw_msg.row_step,
             data=raw_msg.data,
-            is_dense=raw_msg.is_dense)
+            is_dense=raw_msg.is_dense,
+        )
     elif msg_type == "sensor_msgs/msg/CameraInfo":
         return ros_utils.CameraInfo(
             header=raw_msg.header,
@@ -280,7 +301,8 @@ def convert_to_mock(raw_msg, msg_type):
             d=raw_msg.d,
             k=raw_msg.k,
             r=raw_msg.r,
-            p=raw_msg.p)
+            p=raw_msg.p,
+        )
     return raw_msg
 
 
@@ -342,5 +364,6 @@ class RosbagProcessingWorker(QThread):
 
         except Exception as e:
             import traceback
+
             print(f"ERROR in RosbagProcessingWorker: {traceback.format_exc()}")
             self.processing_failed.emit(f"Processing failed: {e}")

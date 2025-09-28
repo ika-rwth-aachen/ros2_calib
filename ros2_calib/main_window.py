@@ -85,7 +85,7 @@ class MainWindow(QMainWindow):
         self.calibrated_transform = np.eye(4, dtype=np.float64)
         self.original_source_frame = ""
         self.original_target_frame = ""
-        self.tf_graph_window = None # To hold a reference to the pop-up window
+        self.tf_graph_window = None  # To hold a reference to the pop-up window
 
         # Set up stacked widget for multiple views
         self.stacked_widget = QStackedWidget()
@@ -187,9 +187,13 @@ class MainWindow(QMainWindow):
         self.camerainfo_topic_combo.setVisible(is_lidar_cam)
         self.pointcloud2_label.setVisible(not is_lidar_cam)
         self.pointcloud2_topic_combo.setVisible(not is_lidar_cam)
-        self.pointcloud_label.setText("PointCloud2 Topic:" if is_lidar_cam else "PointCloud2 Topic (Source):")
+        self.pointcloud_label.setText(
+            "PointCloud2 Topic:" if is_lidar_cam else "PointCloud2 Topic (Source):"
+        )
         self.selection_group.setTitle(f"Topic Selection for {self.calibration_type} Calibration")
-        self.proceed_button.setText("Proceed to Frame Selection" if is_lidar_cam else "Proceed to Transform Selection")
+        self.proceed_button.setText(
+            "Proceed to Frame Selection" if is_lidar_cam else "Proceed to Transform Selection"
+        )
 
     def setup_load_view(self):
         self.load_widget = QWidget()
@@ -288,8 +292,16 @@ class MainWindow(QMainWindow):
 
         manual_group = QGroupBox("Manual Transform Input")
         manual_layout = QGridLayout(manual_group)
-        self.tx_input, self.ty_input, self.tz_input = QLineEdit("0.0"), QLineEdit("0.0"), QLineEdit("0.0")
-        self.rx_input, self.ry_input, self.rz_input = QLineEdit("0.0"), QLineEdit("0.0"), QLineEdit("0.0")
+        self.tx_input, self.ty_input, self.tz_input = (
+            QLineEdit("0.0"),
+            QLineEdit("0.0"),
+            QLineEdit("0.0"),
+        )
+        self.rx_input, self.ry_input, self.rz_input = (
+            QLineEdit("0.0"),
+            QLineEdit("0.0"),
+            QLineEdit("0.0"),
+        )
         manual_layout.addWidget(QLabel("Translation (x, y, z):"), 0, 0)
         manual_layout.addWidget(self.tx_input, 0, 1)
         manual_layout.addWidget(self.ty_input, 0, 2)
@@ -419,7 +431,9 @@ class MainWindow(QMainWindow):
             if self.find_yaml_file(path):
                 self.load_bag_from_path(path)
             else:
-                self.bag_path_label.setText("Error: Corresponding metadata.yaml or matching .yaml not found.")
+                self.bag_path_label.setText(
+                    "Error: Corresponding metadata.yaml or matching .yaml not found."
+                )
         elif os.path.isdir(path):
             mcap_files = [f for f in os.listdir(path) if f.endswith(".mcap")]
             if len(mcap_files) == 1:
@@ -430,7 +444,6 @@ class MainWindow(QMainWindow):
                 self.bag_path_label.setText("Error: Multiple .mcap files found. Please drop one.")
         else:
             self.bag_path_label.setText("Error: Please drop a valid .mcap file or folder.")
-
 
     def load_bag_from_path(self, file_path):
         """Load bag from a specific file path."""
@@ -453,7 +466,11 @@ class MainWindow(QMainWindow):
         self.camerainfo_topic_combo.clear()
 
         topic_types = {
-            "image": [t for t, m, _ in self.topics if m in ["sensor_msgs/msg/Image", "sensor_msgs/msg/CompressedImage"]],
+            "image": [
+                t
+                for t, m, _ in self.topics
+                if m in ["sensor_msgs/msg/Image", "sensor_msgs/msg/CompressedImage"]
+            ],
             "pointcloud": [t for t, m, _ in self.topics if m == "sensor_msgs/msg/PointCloud2"],
             "camerainfo": [t for t, m, _ in self.topics if m == "sensor_msgs/msg/CameraInfo"],
         }
@@ -485,7 +502,13 @@ class MainWindow(QMainWindow):
             self.update_proceed_button_state()
             return
 
-        transport_suffixes = {"compressed", "compressedDepth", "compressed_depth", "Theora", "theora"}
+        transport_suffixes = {
+            "compressed",
+            "compressedDepth",
+            "compressed_depth",
+            "Theora",
+            "theora",
+        }
 
         def candidate_paths(topic: str) -> List[str]:
             tokens = [part for part in topic.strip("/").split("/") if part]
@@ -571,9 +594,22 @@ class MainWindow(QMainWindow):
 
     def update_proceed_button_state(self):
         if self.calibration_type == "LiDAR2Cam":
-            is_valid = all([self.image_topic_combo.currentText(), self.pointcloud_topic_combo.currentText(), self.camerainfo_topic_combo.currentText()])
+            is_valid = all(
+                [
+                    self.image_topic_combo.currentText(),
+                    self.pointcloud_topic_combo.currentText(),
+                    self.camerainfo_topic_combo.currentText(),
+                ]
+            )
         else:
-            is_valid = all([self.pointcloud_topic_combo.currentText(), self.pointcloud2_topic_combo.currentText(), self.pointcloud_topic_combo.currentText() != self.pointcloud2_topic_combo.currentText()])
+            is_valid = all(
+                [
+                    self.pointcloud_topic_combo.currentText(),
+                    self.pointcloud2_topic_combo.currentText(),
+                    self.pointcloud_topic_combo.currentText()
+                    != self.pointcloud2_topic_combo.currentText(),
+                ]
+            )
         self.proceed_button.setEnabled(is_valid)
 
     def process_rosbag_data(self):
@@ -585,7 +621,11 @@ class MainWindow(QMainWindow):
 
         # This dictionary maps all available topic names to their types
         topic_types = {topic: msgtype for topic, msgtype, _ in self.topics}
-        tf_topics = [topic for topic in topic_types if "tf" in topic.lower() and "TFMessage" in topic_types[topic]]
+        tf_topics = [
+            topic
+            for topic in topic_types
+            if "tf" in topic.lower() and "TFMessage" in topic_types[topic]
+        ]
 
         if self.calibration_type == "LiDAR2Cam":
             selected_topics_data = {
@@ -610,7 +650,7 @@ class MainWindow(QMainWindow):
         topics_to_read = {}
         for key, topic_name in selected_topics_data.items():
             # Find all keys that represent a user-selected topic
-            if key.endswith('_topic') and topic_name:
+            if key.endswith("_topic") and topic_name:
                 # Use the topic_name (the value) as the key for our new dict
                 if topic_name in topic_types:
                     topics_to_read[topic_name] = topic_types[topic_name]
@@ -625,11 +665,13 @@ class MainWindow(QMainWindow):
             bag_file=self.bag_file,
             topics_to_read=topics_to_read,
             selected_topics_data=selected_topics_data,
-            total_messages=get_total_message_count(self.bag_file, self.ros_version_combo.currentText()),
+            total_messages=get_total_message_count(
+                self.bag_file, self.ros_version_combo.currentText()
+            ),
             frame_samples=self.frame_count_spinbox.value(),
             topic_message_counts={name: count for name, _, count in self.topics},
             ros_version=self.ros_version_combo.currentText(),
-            sync_tolerance=0.05
+            sync_tolerance=0.05,
         )
         self.processing_worker.progress_updated.connect(self.update_processing_progress)
         self.processing_worker.processing_finished.connect(self.on_processing_finished)
@@ -640,7 +682,9 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(value)
         self.progress_bar.setFormat(message)
 
-    def on_processing_finished(self, raw_messages: Dict, topic_types: Dict, selected_topics_data: Dict):
+    def on_processing_finished(
+        self, raw_messages: Dict, topic_types: Dict, selected_topics_data: Dict
+    ):
         """
         Handles completion of rosbag processing. Correctly routes to frame selection
         for LiDAR2Cam or directly to transform selection for LiDAR2LiDAR.
@@ -655,7 +699,8 @@ class MainWindow(QMainWindow):
 
         self.tf_messages = {
             topic: raw_messages.get(topic)
-            for topic in selected_topics_data.get("tf_topics", []) if topic in raw_messages
+            for topic in selected_topics_data.get("tf_topics", [])
+            if topic in raw_messages
         }
 
         # Check if the worker returned multiple frame samples or a single synchronized message set.
@@ -667,23 +712,35 @@ class MainWindow(QMainWindow):
                 pointcloud_topic = selected_topics_data["pointcloud_topic"]
                 camerainfo_topic = selected_topics_data["camerainfo_topic"]
 
-                self.lidar_frame = self.extract_frame_id(self.frame_samples[pointcloud_topic][0]["data"])
-                self.camera_frame = self.extract_frame_id(self.frame_samples[camerainfo_topic][0]["data"])
+                self.lidar_frame = self.extract_frame_id(
+                    self.frame_samples[pointcloud_topic][0]["data"]
+                )
+                self.camera_frame = self.extract_frame_id(
+                    self.frame_samples[camerainfo_topic][0]["data"]
+                )
 
-                self.frame_selection_widget.set_frame_samples(self.frame_samples, selected_topics_data["image_topic"])
-                self.stacked_widget.setCurrentIndex(3) # Switch to Frame Selection View
+                self.frame_selection_widget.set_frame_samples(
+                    self.frame_samples, selected_topics_data["image_topic"]
+                )
+                self.stacked_widget.setCurrentIndex(3)  # Switch to Frame Selection View
 
-            else: # LiDAR2LiDAR multi-frame (take the first)
+            else:  # LiDAR2LiDAR multi-frame (take the first)
                 pointcloud_topic = selected_topics_data["pointcloud_topic"]
                 pointcloud2_topic = selected_topics_data["pointcloud2_topic"]
 
-                if not self.frame_samples.get(pointcloud_topic) or not self.frame_samples.get(pointcloud2_topic):
-                    self.on_processing_failed("No synchronized message pairs found for LiDAR topics.")
+                if not self.frame_samples.get(pointcloud_topic) or not self.frame_samples.get(
+                    pointcloud2_topic
+                ):
+                    self.on_processing_failed(
+                        "No synchronized message pairs found for LiDAR topics."
+                    )
                     return
 
-                first_pc1 = self.frame_samples[pointcloud_topic][0]['data']
-                first_pc2 = self.frame_samples[pointcloud2_topic][0]['data']
-                self.prepare_for_transform_view(topic_types, selected_topics_data, first_pc1, first_pc2)
+                first_pc1 = self.frame_samples[pointcloud_topic][0]["data"]
+                first_pc2 = self.frame_samples[pointcloud2_topic][0]["data"]
+                self.prepare_for_transform_view(
+                    topic_types, selected_topics_data, first_pc1, first_pc2
+                )
 
         else:
             # Fallback for workers that return a single message set (flat dictionary).
@@ -699,7 +756,7 @@ class MainWindow(QMainWindow):
                     self.on_processing_failed("Synchronized LiDAR messages not found in bag.")
                     return
                 self.prepare_for_transform_view(topic_types, selected_topics_data, pc1_msg, pc2_msg)
-            else: # Fallback for LiDAR2Cam single frame
+            else:  # Fallback for LiDAR2Cam single frame
                 image_topic = selected_topics_data["image_topic"]
                 pointcloud_topic = selected_topics_data["pointcloud_topic"]
                 camerainfo_topic = selected_topics_data["camerainfo_topic"]
@@ -712,12 +769,17 @@ class MainWindow(QMainWindow):
                     "pointcloud_topic": pointcloud_topic,
                     "camerainfo_topic": camerainfo_topic,
                     "topic_types": topic_types,
-                    "raw_messages": {topic: raw_messages.get(topic) for topic in [image_topic, pointcloud_topic, camerainfo_topic]},
+                    "raw_messages": {
+                        topic: raw_messages.get(topic)
+                        for topic in [image_topic, pointcloud_topic, camerainfo_topic]
+                    },
                     "tf_messages": self.tf_messages,
                 }
-                self.tf_title_label.setText(f"Select Initial Transformation: {self.lidar_frame} → {self.camera_frame}")
+                self.tf_title_label.setText(
+                    f"Select Initial Transformation: {self.lidar_frame} → {self.camera_frame}"
+                )
                 self.load_tf_topics_in_transform_view()
-                self.stacked_widget.setCurrentIndex(2) # Switch to Transform View
+                self.stacked_widget.setCurrentIndex(2)  # Switch to Transform View
 
         if hasattr(self, "processing_worker") and self.processing_worker:
             self.processing_worker.deleteLater()
@@ -740,11 +802,13 @@ class MainWindow(QMainWindow):
                 pointcloud_topic: pc1_msg,
                 pointcloud2_topic: pc2_msg,
             },
-            "tf_messages": self.tf_messages
+            "tf_messages": self.tf_messages,
         }
-        self.tf_title_label.setText(f"Select Initial Transformation: {self.lidar_frame} → {self.lidar2_frame}")
+        self.tf_title_label.setText(
+            f"Select Initial Transformation: {self.lidar_frame} → {self.lidar2_frame}"
+        )
         self.load_tf_topics_in_transform_view()
-        self.stacked_widget.setCurrentIndex(2) # Switch to Transform View
+        self.stacked_widget.setCurrentIndex(2)  # Switch to Transform View
 
     def on_frame_selected(self, frame_index: int):
         print(f"[DEBUG] Frame {frame_index + 1} selected for LiDAR2Cam calibration.")
@@ -763,7 +827,9 @@ class MainWindow(QMainWindow):
             },
             "tf_messages": self.tf_messages,
         }
-        self.tf_title_label.setText(f"Select Initial Transformation: {self.lidar_frame} → {self.camera_frame}")
+        self.tf_title_label.setText(
+            f"Select Initial Transformation: {self.lidar_frame} → {self.camera_frame}"
+        )
         self.load_tf_topics_in_transform_view()
         self.stacked_widget.setCurrentIndex(2)
 
@@ -789,10 +855,21 @@ class MainWindow(QMainWindow):
             self.proceed_to_lidar_calibration_with_transform(initial_transform)
             return
 
-        image_msg = convert_to_mock(self.selected_topics["raw_messages"][self.selected_topics["image_topic"]], self.selected_topics["topic_types"][self.selected_topics["image_topic"]])
-        pointcloud_msg = convert_to_mock(self.selected_topics["raw_messages"][self.selected_topics["pointcloud_topic"]], self.selected_topics["topic_types"][self.selected_topics["pointcloud_topic"]])
-        camerainfo_msg = convert_to_mock(self.selected_topics["raw_messages"][self.selected_topics["camerainfo_topic"]], self.selected_topics["topic_types"][self.selected_topics["camerainfo_topic"]])
-        self.calibration_widget = CalibrationWidget(image_msg, pointcloud_msg, camerainfo_msg, ros_utils, initial_transform)
+        image_msg = convert_to_mock(
+            self.selected_topics["raw_messages"][self.selected_topics["image_topic"]],
+            self.selected_topics["topic_types"][self.selected_topics["image_topic"]],
+        )
+        pointcloud_msg = convert_to_mock(
+            self.selected_topics["raw_messages"][self.selected_topics["pointcloud_topic"]],
+            self.selected_topics["topic_types"][self.selected_topics["pointcloud_topic"]],
+        )
+        camerainfo_msg = convert_to_mock(
+            self.selected_topics["raw_messages"][self.selected_topics["camerainfo_topic"]],
+            self.selected_topics["topic_types"][self.selected_topics["camerainfo_topic"]],
+        )
+        self.calibration_widget = CalibrationWidget(
+            image_msg, pointcloud_msg, camerainfo_msg, ros_utils, initial_transform
+        )
         self.calibration_widget.calibration_completed.connect(self.show_calibration_results)
         self.stacked_widget.setCurrentIndex(self.stacked_widget.addWidget(self.calibration_widget))
 
@@ -806,11 +883,18 @@ class MainWindow(QMainWindow):
         pointcloud_msg2 = convert_to_mock(raw_msgs[pc_topic2], topic_types[pc_topic2])
 
         import threading
-        threading.Thread(target=self._run_lidar_calibration_thread, args=(pointcloud_msg1, pointcloud_msg2, initial_transform), daemon=True).start()
+
+        threading.Thread(
+            target=self._run_lidar_calibration_thread,
+            args=(pointcloud_msg1, pointcloud_msg2, initial_transform),
+            daemon=True,
+        ).start()
 
     def _run_lidar_calibration_thread(self, pc1, pc2, initial_transform):
         try:
-            launch_lidar2lidar_calibration(pc1, pc2, initial_transform, self._on_lidar_calibration_completed)
+            launch_lidar2lidar_calibration(
+                pc1, pc2, initial_transform, self._on_lidar_calibration_completed
+            )
         except Exception as e:
             print(f"[ERROR] LiDAR calibration thread failed: {e}")
 
@@ -853,7 +937,9 @@ class MainWindow(QMainWindow):
         if tf_messages:
             tf_topics = list(tf_messages.keys())
             self.tf_topic_combo.addItems(tf_topics)
-            tf_static = next((t for t in tf_topics if "tf_static" in t), tf_topics[0] if tf_topics else None)
+            tf_static = next(
+                (t for t in tf_topics if "tf_static" in t), tf_topics[0] if tf_topics else None
+            )
             if tf_static:
                 self.tf_topic_combo.setCurrentText(tf_static)
                 self.load_tf_tree_from_preloaded()
@@ -880,13 +966,14 @@ class MainWindow(QMainWindow):
         self.try_find_transform()
         self.show_graph_button.setEnabled(bool(self.tf_tree))
 
-
     def parse_preloaded_tf_message(self, msg_data) -> Dict[str, Dict]:
         tf_tree = {}
         for transform_stamped in self.deserialize_tf_message(msg_data).transforms:
             parent = transform_stamped.header.frame_id
             child = transform_stamped.child_frame_id
-            tf_tree.setdefault(parent, {})[child] = {"transform": ros_utils.transform_to_numpy(transform_stamped.transform)}
+            tf_tree.setdefault(parent, {})[child] = {
+                "transform": ros_utils.transform_to_numpy(transform_stamped.transform)
+            }
         return tf_tree
 
     def deserialize_tf_message(self, msg_data) -> ros_utils.TFMessage:
@@ -907,22 +994,17 @@ class MainWindow(QMainWindow):
             # This is safer and ignores any extra metadata like '__msgtype__'.
             new_transform = ros_utils.Transform(
                 translation=ros_utils.Vector3(
-                    x=translation_obj.x,
-                    y=translation_obj.y,
-                    z=translation_obj.z
+                    x=translation_obj.x, y=translation_obj.y, z=translation_obj.z
                 ),
                 rotation=ros_utils.Quaternion(
-                    x=rotation_obj.x,
-                    y=rotation_obj.y,
-                    z=rotation_obj.z,
-                    w=rotation_obj.w
+                    x=rotation_obj.x, y=rotation_obj.y, z=rotation_obj.z, w=rotation_obj.w
                 ),
             )
 
             new_stamped = ros_utils.TransformStamped(
                 header=ros_utils.Header(frame_id=transform_msg.header.frame_id),
                 child_frame_id=transform_msg.child_frame_id,
-                transform=new_transform
+                transform=new_transform,
             )
             transforms.append(new_stamped)
 
@@ -945,6 +1027,7 @@ class MainWindow(QMainWindow):
             return None
 
         from collections import deque
+
         q = deque([(from_frame, np.eye(4))])
         visited = {from_frame}
 
@@ -964,13 +1047,16 @@ class MainWindow(QMainWindow):
                     q.append((neighbor, T @ t))
         return None
 
-    def find_transformation_path_frames(self, from_frame: str, to_frame: str) -> Optional[List[str]]:
+    def find_transformation_path_frames(
+        self, from_frame: str, to_frame: str
+    ) -> Optional[List[str]]:
         if from_frame == to_frame:
             return [from_frame]
         if not self.tf_tree:
             return None
 
         from collections import deque
+
         q = deque([(from_frame, [from_frame])])
         visited = {from_frame}
 
@@ -997,8 +1083,14 @@ class MainWindow(QMainWindow):
         source = self.lidar_frame
         target = self.camera_frame if self.calibration_type == "LiDAR2Cam" else self.lidar2_frame
         path_frames = self.find_transformation_path_frames(source, target)
-        path_info = f"\n✓ Found transformation path: {' → '.join(path_frames)}" if path_frames else f"\n✗ No transformation found: {source} → {target}"
-        self.tf_info_text.setPlainText(f"Available transformations: {sum(len(c) for c in self.tf_tree.values())}{path_info}")
+        path_info = (
+            f"\n✓ Found transformation path: {' → '.join(path_frames)}"
+            if path_frames
+            else f"\n✗ No transformation found: {source} → {target}"
+        )
+        self.tf_info_text.setPlainText(
+            f"Available transformations: {sum(len(c) for c in self.tf_tree.values())}{path_info}"
+        )
 
     def show_tf_graph(self):
         if not self.tf_tree:
@@ -1012,10 +1104,22 @@ class MainWindow(QMainWindow):
     def update_manual_transform(self):
         try:
             from scipy.spatial.transform import Rotation
-            rot = Rotation.from_euler('xyz', [float(self.rx_input.text()), float(self.ry_input.text()), float(self.rz_input.text())])
+
+            rot = Rotation.from_euler(
+                "xyz",
+                [
+                    float(self.rx_input.text()),
+                    float(self.ry_input.text()),
+                    float(self.rz_input.text()),
+                ],
+            )
             self.current_transform = np.eye(4, dtype=np.float64)
             self.current_transform[:3, :3] = rot.as_matrix()
-            self.current_transform[:3, 3] = [float(self.tx_input.text()), float(self.ty_input.text()), float(self.tz_input.text())]
+            self.current_transform[:3, 3] = [
+                float(self.tx_input.text()),
+                float(self.ty_input.text()),
+                float(self.tz_input.text()),
+            ]
             self.update_transform_display()
         except ValueError as e:
             print(f"[ERROR] Invalid manual transform input: {e}")
@@ -1036,7 +1140,9 @@ class MainWindow(QMainWindow):
         self.update_manual_inputs_from_matrix()
 
     def update_transform_display(self):
-        matrix_str = "\n".join(["  ".join([f"{val:8.4f}" for val in row]) for row in self.current_transform])
+        matrix_str = "\n".join(
+            ["  ".join([f"{val:8.4f}" for val in row]) for row in self.current_transform]
+        )
         trans = tf.translation_from_matrix(self.current_transform)
         rpy = tf.euler_from_matrix(self.current_transform)
 
@@ -1053,7 +1159,7 @@ class MainWindow(QMainWindow):
 
         # Handle both old format (direct numpy array) and new format (dictionary)
         if isinstance(calibration_results, dict):
-            calibrated_transform = calibration_results['master_to_camera']
+            calibrated_transform = calibration_results["master_to_camera"]
         elif isinstance(calibration_results, np.ndarray):
             calibrated_transform = calibration_results
         else:
@@ -1078,7 +1184,12 @@ class MainWindow(QMainWindow):
         return sorted(list(frames))
 
     def populate_results_view(self):
-        self.display_transform_urdf(self.calibration_result_display, self.calibrated_transform, self.original_source_frame, self.original_target_frame)
+        self.display_transform_urdf(
+            self.calibration_result_display,
+            self.calibrated_transform,
+            self.original_source_frame,
+            self.original_target_frame,
+        )
         all_frames = self._get_all_tf_frames()
         self.source_frame_combo.blockSignals(True)
         self.target_frame_combo.blockSignals(True)
@@ -1098,23 +1209,34 @@ class MainWindow(QMainWindow):
         if not new_source or not new_target:
             return
         path_frames = self.find_transformation_path_frames(new_source, new_target)
-        self.chain_display.setPlainText(" → ".join(path_frames) if path_frames else f"No static path found between {new_source} and {new_target}.")
+        self.chain_display.setPlainText(
+            " → ".join(path_frames)
+            if path_frames
+            else f"No static path found between {new_source} and {new_target}."
+        )
         self.update_embedded_graph(new_source, new_target)
 
         T_orig_src_to_new_src = self.find_transform_path(self.original_source_frame, new_source)
         T_orig_tgt_to_new_tgt = self.find_transform_path(self.original_target_frame, new_target)
 
         if T_orig_src_to_new_src is None or T_orig_tgt_to_new_tgt is None:
-            self.final_transform_display.setPlainText("Error: Cannot find path from original frames in TF tree.")
+            self.final_transform_display.setPlainText(
+                "Error: Cannot find path from original frames in TF tree."
+            )
             return
 
         T_new_src_to_orig_src = np.linalg.inv(T_orig_src_to_new_src)
         final_transform = T_new_src_to_orig_src @ self.calibrated_transform @ T_orig_tgt_to_new_tgt
-        self.display_transform_urdf(self.final_transform_display, final_transform, new_source, new_target)
+        self.display_transform_urdf(
+            self.final_transform_display, final_transform, new_source, new_target
+        )
         self.current_final_transform = final_transform
 
-    def display_transform_urdf(self, text_widget: QTextEdit, transform: np.ndarray, parent: str, child: str):
+    def display_transform_urdf(
+        self, text_widget: QTextEdit, transform: np.ndarray, parent: str, child: str
+    ):
         from . import tf_transformations as tf
+
         if parent == child:
             text_widget.setPlainText("Source and target frames cannot be the same.")
             return
@@ -1123,7 +1245,9 @@ class MainWindow(QMainWindow):
         rpy = tf.euler_from_matrix(transform)
         joint_name = f"joint_{parent.replace('/', '_')}_to_{child.replace('/', '_')}"
         urdf = f'<joint name="{joint_name}" type="fixed">\n  <parent link="{parent}" />\n  <child link="{child}" />\n  <origin xyz="{" ".join(map(str, xyz))}" rpy="{" ".join(map(str, rpy))}" />\n</joint>'
-        text_widget.setPlainText(f"Transform: {parent} → {child}\nMatrix:\n{matrix_str}\n\nURDF Snippet:\n{urdf}")
+        text_widget.setPlainText(
+            f"Transform: {parent} → {child}\nMatrix:\n{matrix_str}\n\nURDF Snippet:\n{urdf}"
+        )
 
     def update_embedded_graph(self, source_frame: str, target_frame: str):
         self.init_graph_placeholder()
@@ -1137,7 +1261,9 @@ class MainWindow(QMainWindow):
             print(f"[ERROR] Failed to create or embed TF graph: {e}")
 
     def export_calibration_result(self):
-        file_path, _ = QFileDialog.getSaveFileName(self, "Save Target Transform", "", "Text Files (*.txt);;All Files (*)")
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Target Transform", "", "Text Files (*.txt);;All Files (*)"
+        )
         if file_path:
             with open(file_path, "w") as f:
                 f.write(self.final_transform_display.toPlainText())

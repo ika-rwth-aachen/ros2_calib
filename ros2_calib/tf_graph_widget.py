@@ -30,6 +30,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 class TFFrameNode(BaseNode):
     """Custom node for representing a single TF frame in the graph."""
+
     __identifier__ = "tf"
     NODE_NAME = "TFFrameNode"
 
@@ -37,7 +38,7 @@ class TFFrameNode(BaseNode):
         super(TFFrameNode, self).__init__()
         self.add_input("parent")
         self.add_output("child")
-        self.set_color(80, 80, 80) # Default color
+        self.set_color(80, 80, 80)  # Default color
 
 
 class TFGraphWidget(QWidget):
@@ -106,9 +107,7 @@ class TFGraphWidget(QWidget):
         legend_layout.setSpacing(16)
 
         legend.setStyleSheet(
-            "background-color: rgba(255, 255, 255, 235);"
-            "border: 1px solid #bbb;"
-            "border-radius: 6px;"
+            "background-color: rgba(255, 255, 255, 235);border: 1px solid #bbb;border-radius: 6px;"
         )
         legend.setAttribute(Qt.WA_TransparentForMouseEvents, True)
 
