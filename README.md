@@ -22,7 +22,7 @@
               ═══════════════════════════════════════════════════════════
 ```
 
-**ros2_calib** is a multi-sensor calibration tool for ROS 2 that provides intuitive graphical interfaces for performing precise extrinsic calibration between different sensor types. The tool supports both **LiDAR-to-Camera** and **LiDAR-to-LiDAR** calibration workflows. Built with PySide6, it operates on recorded rosbag data without requiring a live ROS 2 environment. It supports reading `/tf_static` transforms from rosbags and allows users to quickly calibrate and export the resulting transformation directly into URDF format. Although it is a manual calibration tool, it is faster to use than a target-based calibration method and is more accurate than automatic methods.
+**ros2_calib** is a multi-sensor calibration tool for ROS 2 that provides intuitive graphical interfaces for performing precise extrinsic calibration between different sensor types. The tool supports both **LiDAR-to-Camera** and **LiDAR-to-LiDAR** calibration workflows. Built with PySide6, it operates on recorded rosbag data without requiring a live ROS 2 environment. It supports reading `/tf_static` transforms from rosbags and allows users to quickly calibrate and export the resulting transformation directly into URDF format. Although it is a manual calibration tool, we made the expierence that it is faster to use than a target-based calibration method and is more accurate than automatic methods.
 
 ## Screenshots
 
