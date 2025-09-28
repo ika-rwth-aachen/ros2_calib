@@ -26,14 +26,14 @@
 
 ## Screenshots
 
+### Start Window with Calibration Type Selection
+![Start Window](assets/start_view.png)
+
 ### Rosbag Loading and Topic Selection
 ![Topic View](assets/topic_view.png)
 
 ### TF Tree Visualization and Initial Transform Selection
 ![Transform View](assets/tree_view.png)
-
-### Frame Selection (LiDAR-to-Camera)
-![Frame Selection](assets/frame_selection_view.png)
 
 ### LiDAR-to-Camera Calibration Interface
 ![LiDAR-to-Camera Calibration](assets/calibration_view.png)
@@ -54,11 +54,11 @@
 - **⌨️ Keyboard Shortcuts**: ESC to cancel, Backspace to delete, Enter to confirm
 
 ### LiDAR-to-LiDAR Calibration
-- **🎮 3D Interactive Interface**: Open3D-based real-time point cloud visualization
+- **🎮 3D Interactive Interface**: Open3D-based point cloud visualization
 - **🔧 Manual Adjustment**: Precise transformation controls with step-size configuration
 - **🤖 Automatic Registration**: Point-to-point and point-to-plane ICP algorithms
 - **👁️ Dual Visualization**: Independent control over source and target point cloud visibility
-- **📊 Real-time Feedback**: Live transformation matrix updates and registration metrics
+- **📊 Calibration View**: Live transformation matrix updates and registration metrics
 
 ### General Features
 - **🌳 TF Tree Integration**: Visual transform chain management and URDF export
@@ -75,7 +75,7 @@
 
 ### Rosbag Requirements
 
-Your rosbag file (`.mcap` format) should contain the following topics:
+Your rosbag file (`.mcap` format, tested with Jazzy and Humble) should contain the following topics:
 
 **For LiDAR-to-Camera Calibration:**
 - **Camera topics**: `/camera/image_raw` or `/camera/image_rect`
