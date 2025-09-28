@@ -25,7 +25,7 @@ from typing import Dict, List, Optional
 from NodeGraphQt import BaseNode, NodeGraph
 from NodeGraphQt.constants import PipeLayoutEnum
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 
 class TFFrameNode(BaseNode):
@@ -74,6 +74,7 @@ class TFGraphWidget(QWidget):
         """Initializes the node graph and populates it with the TF tree."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
         # Create the node graph controller
         self.graph = NodeGraph()
@@ -92,6 +93,50 @@ class TFGraphWidget(QWidget):
 
         # Add the graph widget to the layout
         layout.addWidget(self.graph.widget)
+
+        self.legend_widget = self._build_legend_widget(self.graph.widget)
+        self.legend_widget.adjustSize()
+        self.legend_widget.move(12, 12)
+        self.legend_widget.raise_()
+
+    def _build_legend_widget(self, parent: QWidget) -> QWidget:
+        legend = QWidget(parent)
+        legend_layout = QHBoxLayout(legend)
+        legend_layout.setContentsMargins(12, 8, 12, 8)
+        legend_layout.setSpacing(16)
+
+        legend.setStyleSheet(
+            "background-color: rgba(255, 255, 255, 235);"
+            "border: 1px solid #bbb;"
+            "border-radius: 6px;"
+        )
+        legend.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+
+        self._add_legend_item(legend_layout, "#329632", "Source frame")
+        self._add_legend_item(legend_layout, "#969632", "Path frame")
+        self._add_legend_item(legend_layout, "#323296", "Target frame")
+
+        legend_layout.addStretch(1)
+        return legend
+
+    def _add_legend_item(self, layout: QHBoxLayout, color: str, label: str) -> None:
+        swatch = QLabel()
+        swatch.setFixedSize(14, 14)
+        swatch.setStyleSheet(
+            f"background-color: {color}; border: 1px solid #444; border-radius: 3px;"
+        )
+
+        text = QLabel(label)
+        text.setStyleSheet("color: #333; font-size: 12px;")
+
+        container = QWidget()
+        container_layout = QHBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(6)
+        container_layout.addWidget(swatch)
+        container_layout.addWidget(text)
+
+        layout.addWidget(container)
 
     def _create_nodes(self):
         """Creates a graphical node for each unique frame in the TF tree."""
