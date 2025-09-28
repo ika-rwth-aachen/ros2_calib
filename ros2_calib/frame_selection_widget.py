@@ -142,62 +142,57 @@ class FrameSelectionWidget(QWidget):
         pixmap = QPixmap(380, 240)  # Increased thumbnail size
         pixmap.fill(Qt.gray)
 
-        try:
-            raw_image_data = frame_data["data"]
-            topic_type = frame_data.get("topic_type", "sensor_msgs/msg/Image")
+        raw_image_data = frame_data["data"]
+        topic_type = frame_data["topic_type"]
 
-            # Convert raw rosbag message to proper format first
+        # Convert raw rosbag message to proper format first
 
-            # Convert based on topic type
-            image_msg = convert_to_mock(raw_image_data, topic_type)
+        # Convert based on topic type
+        image_msg = convert_to_mock(raw_image_data, topic_type)
 
-            # Use the same image processing as calibration widget
-            if hasattr(image_msg, "_type") and image_msg._type == "sensor_msgs/msg/CompressedImage":
-                # Handle compressed image using cv2.imdecode
-                np_arr = np.frombuffer(image_msg.data, np.uint8)
-                img_array = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-            else:
-                # Handle regular image using ros_utils.image_to_numpy
-                img_array = ros_utils.image_to_numpy(image_msg)
-                # Convert from RGB to BGR if needed
-                if "bgr" not in image_msg.encoding and len(img_array.shape) == 3:
-                    img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
-                # Ensure it's 3-channel BGR
-                if len(img_array.shape) == 2:  # Grayscale
-                    img_array = cv2.cvtColor(img_array, cv2.COLOR_GRAY2BGR)
+        # Use the same image processing as calibration widget
+        if hasattr(image_msg, "_type") and image_msg._type == "sensor_msgs/msg/CompressedImage":
+            # Handle compressed image using cv2.imdecode
+            np_arr = np.frombuffer(image_msg.data, np.uint8)
+            img_array = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        else:
+            # Handle regular image using ros_utils.image_to_numpy
+            img_array = ros_utils.image_to_numpy(image_msg)
+            # Convert from RGB to BGR if needed
+            if "bgr" not in image_msg.encoding and len(img_array.shape) == 3:
+                img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+            # Ensure it's 3-channel BGR
+            if len(img_array.shape) == 2:  # Grayscale
+                img_array = cv2.cvtColor(img_array, cv2.COLOR_GRAY2BGR)
 
-            # Resize for thumbnail while maintaining aspect ratio
-            height, width = img_array.shape[:2]
-            aspect_ratio = width / height
+        # Resize for thumbnail while maintaining aspect ratio
+        height, width = img_array.shape[:2]
+        aspect_ratio = width / height
 
-            # Increased thumbnail size
-            max_thumb_width = 380
-            max_thumb_height = 240
+        # Increased thumbnail size
+        max_thumb_width = 380
+        max_thumb_height = 240
 
-            if aspect_ratio > max_thumb_width / max_thumb_height:
-                # Width-constrained
-                thumb_width = max_thumb_width
-                thumb_height = int(thumb_width / aspect_ratio)
-            else:
-                # Height-constrained
-                thumb_height = max_thumb_height
-                thumb_width = int(thumb_height * aspect_ratio)
+        if aspect_ratio > max_thumb_width / max_thumb_height:
+            # Width-constrained
+            thumb_width = max_thumb_width
+            thumb_height = int(thumb_width / aspect_ratio)
+        else:
+            # Height-constrained
+            thumb_height = max_thumb_height
+            thumb_width = int(thumb_height * aspect_ratio)
 
-            img_resized = cv2.resize(img_array, (thumb_width, thumb_height))
+        img_resized = cv2.resize(img_array, (thumb_width, thumb_height))
 
-            # Convert to QPixmap
-            height, width, channel = img_resized.shape
-            bytes_per_line = 3 * width
+        # Convert to QPixmap
+        height, width, channel = img_resized.shape
+        bytes_per_line = 3 * width
 
-            # Convert BGR to RGB for Qt
-            img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
+        # Convert BGR to RGB for Qt
+        img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
 
-            q_image = QImage(img_rgb.data, width, height, bytes_per_line, QImage.Format_RGB888)
-            pixmap = QPixmap.fromImage(q_image)
-
-        except Exception as e:
-            print(f"Error creating frame thumbnail: {e}")
-            # pixmap is already set to placeholder above
+        q_image = QImage(img_rgb.data, width, height, bytes_per_line, QImage.Format_RGB888)
+        pixmap = QPixmap.fromImage(q_image)
 
         # Image label
         image_label = QLabel()

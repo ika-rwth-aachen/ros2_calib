@@ -16,15 +16,18 @@
           ██   ██  ██████  ███████ ███████       ██████ ██   ██ ███████ ██ ██████  
 
               ═══════════════════════════════════════════════════════════
-                           Manual LiDAR-Camera Calibration Tool          
+                          Multi-Sensor Calibration Tool for ROS 2
                           🎯 Precise • 🚀 Fast • 🔧 Interactive
                              >>>  pip install ros2-calib  <<<
               ═══════════════════════════════════════════════════════════
 ```
 
-**ros2_calib** is a manual LiDAR-Camera calibration tool for ROS 2 that provides an intuitive graphical interface for performing precise extrinsic calibration between LiDAR sensors and cameras. Built with PySide6, it operates on recorded rosbag data without requiring a ROS 2 environment. It supports reading `/tf_static` transforms from rosbags and allows users to quickly calibrate and export the resulting transformation directly into URDF format. Although it is a manual calibration tool, it is faster to use than a target-based calibration method and is more accurate than automatic methods.
+**ros2_calib** is a multi-sensor calibration tool for ROS 2 that provides intuitive graphical interfaces for performing precise extrinsic calibration between different sensor types. The tool supports both **LiDAR-to-Camera** and **LiDAR-to-LiDAR** calibration workflows. Built with PySide6, it operates on recorded rosbag data without requiring a live ROS 2 environment. It supports reading `/tf_static` transforms from rosbags and allows users to quickly calibrate and export the resulting transformation directly into URDF format. Although it is a manual calibration tool, we made the expierence that it is faster to use than a target-based calibration method and is more accurate than automatic methods.
 
 ## Screenshots
+
+### Start Window with Calibration Type Selection
+![Start Window](assets/start_view.png)
 
 ### Rosbag Loading and Topic Selection
 ![Topic View](assets/topic_view.png)
@@ -32,22 +35,36 @@
 ### TF Tree Visualization and Initial Transform Selection
 ![Transform View](assets/tree_view.png)
 
-### Calibration Interface
-![Screenshot](assets/calibration_view.png)
+### LiDAR-to-Camera Calibration Interface
+![LiDAR-to-Camera Calibration](assets/calibration_view.png)
+
+### LiDAR-to-LiDAR Calibration Interface (Open3D)
+![LiDAR-to-LiDAR Calibration](assets/lidar2lidar_view.png)
 
 ### Target Link Selection and URDF Export
-![Node View](assets/export_view.png)
+![Export View](assets/export_view.png)
 
 ## Features
 
+### LiDAR-to-Camera Calibration
 - **🎯 Interactive Calibration**: Point-and-click interface for 2D-3D correspondences
-- **🔄 Real-time Visualization**: Live point cloud projection with adjustable parameters  
+- **🔄 Real-time Visualization**: Live point cloud projection with adjustable parameters
 - **🧠 Smart Algorithms**: RANSAC-based PnP solver with Scipy least-squares refinement
-- **🌳 TF Tree Integration**: Visual transform chain management and URDF export
 - **🧹 Point Cloud Cleaning**: Advanced occlusion removal using the RePLAy algorithm
-- **💾 Offline Processing**: Works with .mcap rosbag files - no live ROS 2 required
 - **⌨️ Keyboard Shortcuts**: ESC to cancel, Backspace to delete, Enter to confirm
-- **🎨 Easy to  UI**: Organized sections with responsive design
+
+### LiDAR-to-LiDAR Calibration
+- **🎮 3D Interactive Interface**: Open3D-based point cloud visualization
+- **🔧 Manual Adjustment**: Precise transformation controls with step-size configuration
+- **🤖 Automatic Registration**: Point-to-point and point-to-plane ICP algorithms
+- **👁️ Dual Visualization**: Independent control over source and target point cloud visibility
+- **📊 Calibration View**: Live transformation matrix updates and registration metrics
+
+### General Features
+- **🌳 TF Tree Integration**: Visual transform chain management and URDF export
+- **💾 Offline Processing**: Works with .mcap rosbag files - no live ROS 2 required
+- **🎨 Easy-to-Use UI**: Organized sections with responsive design
+- **📱 Multi-Calibration Types**: Seamless switching between different calibration workflows
 
 ## Installation
 
@@ -58,14 +75,18 @@
 
 ### Rosbag Requirements
 
-Your rosbag file (`.mcap` format) should contain the following topics:
+Your rosbag file (`.mcap` format, tested with Jazzy and Humble) should contain the following topics:
 
-**Required:**
+**For LiDAR-to-Camera Calibration:**
 - **Camera topics**: `/camera/image_raw` or `/camera/image_rect`
     - `sensor_msgs/Image`
     - `sensor_msgs/CompressedImage`
 - **Camera info**: `/camera/camera_info` (sensor_msgs/CameraInfo)
 - **LiDAR topics**: `/lidar/points` or similar (sensor_msgs/PointCloud2)
+
+**For LiDAR-to-LiDAR Calibration:**
+- **Source LiDAR topic**: `/lidar1/points` (sensor_msgs/PointCloud2)
+- **Target LiDAR topic**: `/lidar2/points` (sensor_msgs/PointCloud2)
 
 **Optional but Recommended:**
 - **Transform topics**: `/tf_static` (tf2_msgs/TFMessage) 
@@ -103,15 +124,17 @@ python -m pip install .
    ros2_calib
    ```
 
-2. **Load your rosbag**: Click "Load Rosbag" and select your .mcap file
+2. **Select calibration type**: Choose between LiDAR-to-Camera or LiDAR-to-LiDAR calibration
 
-3. **Select topics**: Choose your image, point cloud, camera info, and TF topics
+3. **Load your rosbag**: Click "Load Rosbag" and select your .mcap file
 
-4. **Set initial transform**: Configure the transformation between LiDAR and camera frames
+4. **Select topics**: Choose your sensor topics based on calibration type
 
-5. **Create correspondences**: Click corresponding points in the 2D image and 3D point cloud
+5. **Set initial transform**: Configure the transformation between sensor frames
 
-6. **Calibrate**: Run the calibration algorithm to get precise extrinsic parameters
+6. **Perform calibration**:
+   - **LiDAR-to-Camera**: Select frame, create 2D-3D correspondences, run calibration
+   - **LiDAR-to-LiDAR**: Use interactive 3D interface with manual adjustment and/or ICP
 
 7. **Export results**: View transformation chains and export URDF-ready transforms
 
@@ -119,40 +142,60 @@ python -m pip install .
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Load Rosbag   │ -> │  Select Topics  │ -> │ Set Initial TF  │ -> │   Interactive   │
-│   (.mcap file)  │    │  (img/pcd/info) │    │  (manual/auto)  │    │  Calibration    │
+│ Select Calib    │ -> │   Load Rosbag   │ -> │  Select Topics  │ -> │ Set Initial TF  │
+│ Type (L2C/L2L)  │    │   (.mcap file)  │    │   (sensors)     │    │  (manual/auto)  │
 └─────────────────┘    └─────────────────┘    └─────────────────┘    └─────────────────┘
                                                                              │
+                       ┌─────────────────┐    ┌─────────────────┐            │
+                       │ Frame Selection │ -> │   LiDAR2Camera  │ <----------┘
+                       │  (L2C only)     │    │  Calibration    │
+                       └─────────────────┘    └─────────────────┘
+                                                       │
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐            │
 │   Export URDF   │ <- │ Transform Chain │ <- │ View Results &  │ <----------┘
-│   Transform     │    │  Visualization  │    │  TF Integration │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
+│   Transform     │    │  Visualization  │    │  TF Integration │            │
+└─────────────────┘    └─────────────────┘    └─────────────────┘            │
+                                                       ▲                     │
+                       ┌─────────────────┐    ┌─────────────────┐            │
+                       │   LiDAR2LiDAR   │ -> │                 │ <----------┘
+                       │ Calibration O3D │    │                 │
+                       └─────────────────┘    └─────────────────┘
 ```
 
 ## Core Architecture
 
 - **main.py**: Application entry point with PySide6 QApplication setup
-- **main_window.py**: Multi-view interface with stacked widget navigation
-- **calibration_widget.py**: Interactive calibration view with 2D/3D visualization
+- **main_window.py**: Multi-view interface with stacked widget navigation and calibration type selection
+- **calibration_widget.py**: Interactive LiDAR-to-Camera calibration view with 2D/3D visualization
+- **lidar2lidar_o3d_widget.py**: Open3D-based LiDAR-to-LiDAR calibration interface
+- **frame_selection_widget.py**: Frame selection interface for synchronized sensor data
 - **calibration.py**: Core mathematical algorithms using OpenCV and Scipy
-- **transformation_widget.py**: TF tree visualization using NodeGraphQt
 - **bag_handler.py**: Rosbag processing and message extraction utilities
 - **ros_utils.py**: Mock ROS 2 message types for offline operation
+- **tf_graph_widget.py**: Interactive TF tree visualization using NodeGraphQt
 - **lidar_cleaner.py**: Point cloud cleaning based on RePLAy Algorithm (ECCV 2024)
 
 ## Algorithm Details
 
-### Two-Stage Calibration Process
+### LiDAR-to-Camera Calibration
 
+**Two-Stage Calibration Process:**
 1. **Initial Estimation**: OpenCV's `solvePnPRansac` for robust pose estimation
 2. **Refinement**: Scipy's `least_squares` optimization minimizing reprojection error
 3. **Quality Assessment**: Automatic outlier detection and correspondence validation
 
-### Point Cloud Processing
-
+**Point Cloud Processing:**
 - **Occlusion Removal**: RePLAy algorithm removes projective artifacts
 - **Intensity-based Coloring**: Configurable colormap visualization
 - **Real-time Projection**: Live updates during manual adjustments
+
+### LiDAR-to-LiDAR Calibration
+
+**Interactive 3D Calibration:**
+- **Manual Adjustment**: Precise translation and rotation controls with configurable step sizes
+- **Automatic Registration**: Point-to-point and point-to-plane ICP algorithms
+- **Real-time Visualization**: Open3D-based 3D rendering with dual point cloud display
+- **Quality Metrics**: Live fitness and RMSE feedback during ICP registration
 
 ## Configuration
 
@@ -205,7 +248,7 @@ If you use this tool in your research, please cite:
 
 ```bibtex
 @software{ros2_calib,
-  title={ros2\_calib: Manual LiDAR-Camera Calibration Tool},
+  title={ros2\_calib: Multi-Sensor Calibration Tool for ROS 2},
   author={Till Beemelmanns},
   year={2025},
   url={https://github.com/ika-rwth-aachen/ros2_calib}
@@ -230,9 +273,10 @@ We integrate the RePLAy algorithm for removing projective LiDAR artifacts:
 ### Dependencies
 
 - [PySide6](https://pypi.org/project/PySide6/) - Cross-platform GUI toolkit
-- [OpenCV](https://opencv.org/) - Computer vision algorithms  
+- [OpenCV](https://opencv.org/) - Computer vision algorithms
 - [NumPy](https://numpy.org/) - Numerical computing
 - [SciPy](https://scipy.org/) - Scientific computing
+- [Open3D](https://www.open3d.org/) - 3D visualization and point cloud processing
 - [NodeGraphQt](https://github.com/jchanvfx/NodeGraphQt) - Node graph visualization
 - [rosbags](https://github.com/ternaris/rosbags) - Pure Python rosbag processing
 

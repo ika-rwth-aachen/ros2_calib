@@ -110,19 +110,32 @@ class ZoomableView(QGraphicsView):
 
 
 class CalibrationWidget(QWidget):
-    calibration_completed = Signal(np.ndarray)  # Signal to emit calibrated transform
+    calibration_completed = Signal(object)  # Signal to emit calibrated transform(s)
 
-    def __init__(self, image_msg, pointcloud_msg, camerainfo_msg, ros_utils, initial_transform):
+    def __init__(
+        self,
+        image_msg,
+        pointcloud_msg,
+        camerainfo_msg,
+        ros_utils,
+        initial_transform,
+        second_pointcloud_msg=None,
+    ):
         super().__init__()
         self.image_msg = image_msg
-        self.pointcloud_msg = pointcloud_msg
+        self.pointcloud_msg = pointcloud_msg  # Master point cloud
+        self.second_pointcloud_msg = second_pointcloud_msg  # Optional second point cloud
         self.camerainfo_msg = camerainfo_msg
         self.ros_utils = ros_utils
-        self.correspondences = {}
+        self.correspondences = {}  # Master LiDAR to camera correspondences
+        self.lidar_to_lidar_correspondences = {}  # Second LiDAR to master LiDAR correspondences
 
-        self.initial_extrinsics = initial_transform
+        # Use inverse as transform point cloud to camera frame
+        self.initial_extrinsics = np.linalg.inv(initial_transform)
         self.extrinsics = np.copy(self.initial_extrinsics)
+        self.second_lidar_transform = np.eye(4)  # Transform from master to second LiDAR
         self.occlusion_mask = None
+        self.second_occlusion_mask = None
 
         # Image rectification state
         self.original_cv_image = None
@@ -135,8 +148,14 @@ class CalibrationWidget(QWidget):
         self.highlighted_3d_items = []
         self.selected_3d_items_map = {}
 
+        # Master point cloud visualization
         self.point_cloud_item = None
         self.kdtree = None
+
+        # Second point cloud visualization
+        self.second_point_cloud_item = None
+        self.second_kdtree = None
+        self.has_second_pointcloud = second_pointcloud_msg is not None
 
         main_layout = QHBoxLayout()
         self.setLayout(main_layout)
@@ -154,14 +173,15 @@ class CalibrationWidget(QWidget):
 
         self.display_image()
         self.project_pointcloud()
+        if self.has_second_pointcloud:
+            self.project_second_pointcloud()
         self._update_inputs_from_extrinsics()
         self._update_calibrate_button_highlight()
         self.display_camera_intrinsics()
 
-
     def has_significant_distortion(self):
         """Check if camera has significant distortion coefficients."""
-        if not hasattr(self.camerainfo_msg, 'd'):
+        if not hasattr(self.camerainfo_msg, "d"):
             return False
 
         # Convert distortion coefficients to numpy array
@@ -215,8 +235,19 @@ class CalibrationWidget(QWidget):
         view_controls_layout.addRow("Point Size:", self.point_size_spinbox)
         self.colormap_combo = QComboBox()
         self.colormap_combo.addItems(
-            ["autumn", "jet", "winter", "summer", "spring", "hot", "magma",
-             "inferno", "Spectral", "RdYlGn"])
+            [
+                "autumn",
+                "jet",
+                "winter",
+                "summer",
+                "spring",
+                "hot",
+                "magma",
+                "inferno",
+                "Spectral",
+                "RdYlGn",
+            ]
+        )
         self.colormap_combo.setCurrentText(AppConstants.DEFAULT_COLORMAP)
         view_controls_layout.addRow("Colormap:", self.colormap_combo)
         self.colorization_mode_combo = QComboBox()
@@ -260,6 +291,16 @@ class CalibrationWidget(QWidget):
         # Correspondence Controls Section
         corr_group = QGroupBox("Correspondence Management")
         corr_layout = QVBoxLayout(corr_group)
+
+        # Correspondence mode selection
+        if self.has_second_pointcloud:
+            self.correspondence_mode_combo = QComboBox()
+            self.correspondence_mode_combo.addItems(
+                ["Master LiDAR ↔ Camera", "Second LiDAR ↔ Master LiDAR"]
+            )
+            corr_layout.addWidget(QLabel("Correspondence Mode:"))
+            corr_layout.addWidget(self.correspondence_mode_combo)
+
         self.add_corr_button = QPushButton("Add Correspondence")
         self.add_corr_button.setCheckable(True)
         self.add_corr_button.toggled.connect(self.toggle_selection_mode)
@@ -463,10 +504,23 @@ class CalibrationWidget(QWidget):
         self.step_size_ok_button.setStyleSheet(self.default_button_style)
 
     def _update_calibrate_button_highlight(self):
-        if len(self.correspondences) >= 4:
-            self.calibrate_button.setStyleSheet(UIStyles.HIGHLIGHT_BUTTON)
+        # Need at least 4 master LiDAR to camera correspondences for calibration
+        # LiDAR-to-LiDAR correspondences are used to solve for the second LiDAR transform
+        master_cam_corr_count = len(self.correspondences)
+        lidar_lidar_corr_count = len(self.lidar_to_lidar_correspondences)
+
+        if self.has_second_pointcloud:
+            # Need both types of correspondences for dual LiDAR mode
+            if master_cam_corr_count >= 4 and lidar_lidar_corr_count >= 3:
+                self.calibrate_button.setStyleSheet(UIStyles.HIGHLIGHT_BUTTON)
+            else:
+                self.calibrate_button.setStyleSheet(self.default_button_style)
         else:
-            self.calibrate_button.setStyleSheet(self.default_button_style)
+            # Single LiDAR mode
+            if master_cam_corr_count >= 4:
+                self.calibrate_button.setStyleSheet(UIStyles.HIGHLIGHT_BUTTON)
+            else:
+                self.calibrate_button.setStyleSheet(self.default_button_style)
 
     def _highlight_export_button(self):
         """Highlight export button when calibration data changes."""
@@ -520,8 +574,17 @@ class CalibrationWidget(QWidget):
 
     def toggle_selection_mode(self, checked):
         if checked:
-            self.selection_mode = "wait_for_2d_click"
-            self.add_corr_button.setText("1. Click on 2D Image Point")
+            if self.has_second_pointcloud:
+                corr_mode = self.correspondence_mode_combo.currentText()
+                if corr_mode == "Master LiDAR ↔ Camera":
+                    self.selection_mode = "wait_for_2d_click"
+                    self.add_corr_button.setText("1. Click on 2D Image Point")
+                else:  # Second LiDAR ↔ Master LiDAR
+                    self.selection_mode = "wait_for_second_lidar_click"
+                    self.add_corr_button.setText("1. Click on Second LiDAR Point")
+            else:
+                self.selection_mode = "wait_for_2d_click"
+                self.add_corr_button.setText("1. Click on 2D Image Point")
             self.view.setDragMode(QGraphicsView.NoDrag)
         else:
             self.reset_selection_mode()
@@ -537,6 +600,12 @@ class CalibrationWidget(QWidget):
                 return True
             elif self.selection_mode == "wait_for_3d_clicks":
                 self.handle_3d_point_selection(event.pos())
+                return True
+            elif self.selection_mode == "wait_for_second_lidar_click":
+                self.handle_second_lidar_point_selection(event.pos())
+                return True
+            elif self.selection_mode == "wait_for_master_lidar_clicks":
+                self.handle_master_lidar_point_selection(event.pos())
                 return True
         return super().eventFilter(source, event)
 
@@ -576,17 +645,90 @@ class CalibrationWidget(QWidget):
             self.selected_3d_items_map[idx] = item
         self._update_confirm_button_state()
 
+    def handle_second_lidar_point_selection(self, pos):
+        """Handle selection of a point from the second LiDAR point cloud."""
+        if self.second_kdtree is None:
+            return
+        self.clear_temp_markers()
+        scene_pos = self.view.mapToScene(pos)
+        dist, idx = self.second_kdtree.query([scene_pos.x(), scene_pos.y()], k=1)
+        if dist > self.point_size_spinbox.value() * 1.5:
+            return
+
+        # Store selected second LiDAR point
+        self.selected_second_lidar_point = self.second_points_proj_valid[idx]
+        self.selected_second_lidar_3d_idx = self.second_valid_indices[idx]
+
+        # Draw marker on selected point
+        point_2d = self.second_points_proj_valid[idx]
+        self.draw_cross_marker(
+            QPointF(point_2d[0], point_2d[1]), QColor(255, 0, 255)
+        )  # Magenta for second LiDAR
+
+        # Move to next mode
+        self.selection_mode = "wait_for_master_lidar_clicks"
+        self.add_corr_button.setText("2. Click on Master LiDAR Point(s)")
+        self.confirm_3d_button.setVisible(True)
+
+    def handle_master_lidar_point_selection(self, pos):
+        """Handle selection of points from the master LiDAR point cloud for LiDAR-to-LiDAR correspondence."""
+        if self.kdtree is None:
+            return
+        scene_pos = self.view.mapToScene(pos)
+        dist, idx = self.kdtree.query([scene_pos.x(), scene_pos.y()], k=1)
+        if dist > self.point_size_spinbox.value() * 1.5:
+            return
+
+        if idx in self.selected_3d_items_map:
+            item_to_remove = self.selected_3d_items_map.pop(idx)
+            if item_to_remove in self.scene.items():
+                self.scene.removeItem(item_to_remove)
+            self.current_3d_selection.remove(item_to_remove)
+        else:
+            point_2d = self.points_proj_valid[idx]
+            point_size = self.point_size_spinbox.value()
+            item = QGraphicsEllipseItem(
+                point_2d[0] - point_size / 2, point_2d[1] - point_size / 2, point_size, point_size
+            )
+            item.setPen(QPen(QColor(0, 255, 0), 2))  # Green for master LiDAR
+            item.setBrush(QBrush(QColor(0, 255, 0)))
+            item.setData(0, idx)
+            self.scene.addItem(item)
+            self.current_3d_selection.append(item)
+            self.selected_3d_items_map[idx] = item
+        self._update_confirm_button_state()
+
     def finalize_correspondence(self):
-        if not self.current_3d_selection or self.selected_2d_point is None:
+        if not self.current_3d_selection:
             self.reset_selection_mode()
             return
-        selected_valid_indices = [item.data(0) for item in self.current_3d_selection]
-        original_indices = [self.valid_indices[i] for i in selected_valid_indices]
-        mean_3d_point = np.mean(self.points_xyz[original_indices], axis=0)
-        self.correspondences[self.selected_2d_point] = {
-            "3d_mean": mean_3d_point,
-            "3d_points_indices": original_indices,
-        }
+
+        if hasattr(self, "selected_second_lidar_point"):
+            # LiDAR-to-LiDAR correspondence
+            selected_valid_indices = [item.data(0) for item in self.current_3d_selection]
+            original_indices = [self.valid_indices[i] for i in selected_valid_indices]
+            mean_3d_point = np.mean(self.points_xyz[original_indices], axis=0)
+
+            # Store correspondence between second LiDAR point and master LiDAR points
+            second_lidar_3d = self.second_points_xyz[self.selected_second_lidar_3d_idx]
+            self.lidar_to_lidar_correspondences[tuple(second_lidar_3d)] = {
+                "master_3d_mean": mean_3d_point,
+                "master_3d_points_indices": original_indices,
+                "second_lidar_index": self.selected_second_lidar_3d_idx,
+            }
+        elif self.selected_2d_point is not None:
+            # Camera-to-LiDAR correspondence
+            selected_valid_indices = [item.data(0) for item in self.current_3d_selection]
+            original_indices = [self.valid_indices[i] for i in selected_valid_indices]
+            mean_3d_point = np.mean(self.points_xyz[original_indices], axis=0)
+            self.correspondences[self.selected_2d_point] = {
+                "3d_mean": mean_3d_point,
+                "3d_points_indices": original_indices,
+            }
+        else:
+            self.reset_selection_mode()
+            return
+
         self.update_corr_list()
         self.reset_selection_mode()
         self._update_calibrate_button_highlight()
@@ -594,10 +736,15 @@ class CalibrationWidget(QWidget):
 
     def reset_calibration_state(self):
         self.correspondences = {}
+        self.lidar_to_lidar_correspondences = {}
         self.update_corr_list()
         self.extrinsics = np.copy(self.initial_extrinsics)
+        self.second_lidar_transform = np.eye(4)
         self.occlusion_mask = None
+        self.second_occlusion_mask = None
         self.project_pointcloud()
+        if self.has_second_pointcloud:
+            self.project_second_pointcloud()
         self.update_results_display()
         self._update_inputs_from_extrinsics()
         self.clear_all_highlighting()
@@ -607,6 +754,11 @@ class CalibrationWidget(QWidget):
     def reset_selection_mode(self):
         self.selection_mode = None
         self.selected_2d_point = None
+        # Clear second LiDAR selection attributes
+        if hasattr(self, "selected_second_lidar_point"):
+            delattr(self, "selected_second_lidar_point")
+        if hasattr(self, "selected_second_lidar_3d_idx"):
+            delattr(self, "selected_second_lidar_3d_idx")
         self.clear_temp_markers()
         for item in self.current_3d_selection:
             if item.scene():
@@ -669,9 +821,7 @@ class CalibrationWidget(QWidget):
     def display_camera_intrinsics(self):
         """Display the camera intrinsic matrix K."""
         # Add camera info
-        display_text = (
-            f"\nImage Size: {self.camerainfo_msg.width} x {self.camerainfo_msg.height}\n"
-        )
+        display_text = f"Image Size: {self.camerainfo_msg.width} x {self.camerainfo_msg.height}\n"
 
         K = np.array(self.camerainfo_msg.k).reshape(3, 3)
 
@@ -686,26 +836,25 @@ class CalibrationWidget(QWidget):
         display_text += f"\nFocal Length: fx={fx:.1f}, fy={fy:.1f}"
         display_text += f"\nPrincipal Point: cx={cx:.1f}, cy={cy:.1f}"
 
-        display_text += "\n"
-
+        display_text += "\n\n"
 
         display_text += f"Distortion Model: {self.camerainfo_msg.distortion_model}"
 
         # Add distortion coefficients
-        if hasattr(self.camerainfo_msg, 'd') and len(self.camerainfo_msg.d) > 0:
+        if hasattr(self.camerainfo_msg, "d") and len(self.camerainfo_msg.d) > 0:
             dist_coeffs = np.array(self.camerainfo_msg.d)
-            display_text += "\nDistortion Coeffs: ["
+            display_text += "\n\nDistortion Coeffs: ["
             coeffs_str = ", ".join(f"{coeff:.6f}" for coeff in dist_coeffs)
             display_text += coeffs_str + "]"
 
             # Add interpretation of common distortion models
             if len(dist_coeffs) >= 4:
-                display_text += f"\n  k1={dist_coeffs[0]:.6f}, k2={dist_coeffs[1]:.6f}"
-                display_text += f"\n  p1={dist_coeffs[2]:.6f}, p2={dist_coeffs[3]:.6f}"
+                display_text += f"\nk1={dist_coeffs[0]:.6f}, k2={dist_coeffs[1]:.6f}"
+                display_text += f"\np1={dist_coeffs[2]:.6f}, p2={dist_coeffs[3]:.6f}"
                 if len(dist_coeffs) >= 5:
                     display_text += f", k3={dist_coeffs[4]:.6f}"
                 if len(dist_coeffs) >= 8:
-                    display_text += f"\n  k4={dist_coeffs[5]:.6f}, k5={dist_coeffs[6]:.6f}, k6={dist_coeffs[7]:.6f}"
+                    display_text += f"\nk4={dist_coeffs[5]:.6f}, k5={dist_coeffs[6]:.6f}, k6={dist_coeffs[7]:.6f}"
         else:
             display_text += "\nDistortion Coeffs: None"
 
@@ -713,6 +862,8 @@ class CalibrationWidget(QWidget):
 
     def redraw_points(self):
         self.project_pointcloud(self.extrinsics, re_read_cloud=False)
+        if self.has_second_pointcloud:
+            self.project_second_pointcloud()
         self.apply_view_button.setStyleSheet(self.default_button_style)
 
     def project_pointcloud(self, extrinsics=None, re_read_cloud=True):
@@ -791,23 +942,121 @@ class CalibrationWidget(QWidget):
         )
         self.scene.addItem(self.point_cloud_item)
 
+    def project_second_pointcloud(self, transform=None):
+        """Project the second point cloud using the current transformation."""
+        if not self.has_second_pointcloud:
+            return
+
+        if transform is not None:
+            self.second_lidar_transform = transform
+
+        # Remove existing second point cloud
+        if self.second_point_cloud_item is not None and self.second_point_cloud_item.scene():
+            self.scene.removeItem(self.second_point_cloud_item)
+        self.second_point_cloud_item = None
+
+        # Extract second point cloud data
+        cloud_arr = self.ros_utils.pointcloud2_to_structured_array(self.second_pointcloud_msg)
+        valid_mask = (
+            np.isfinite(cloud_arr["x"]) & np.isfinite(cloud_arr["y"]) & np.isfinite(cloud_arr["z"])
+        )
+        cloud_arr = cloud_arr[valid_mask]
+        second_points_xyz = np.vstack([cloud_arr["x"], cloud_arr["y"], cloud_arr["z"]]).T
+        second_intensities = cloud_arr["intensity"]
+
+        if second_points_xyz.shape[0] == 0:
+            return
+
+        # Transform second LiDAR points to master LiDAR frame
+        second_points_homogeneous = np.hstack(
+            [second_points_xyz, np.ones((second_points_xyz.shape[0], 1))]
+        )
+        transformed_points = (self.second_lidar_transform @ second_points_homogeneous.T).T[:, :3]
+
+        # Project using master LiDAR to camera transform
+        K = np.array(self.camerainfo_msg.k).reshape(3, 3)
+        rvec, _ = cv2.Rodrigues(self.extrinsics[:3, :3])
+        tvec = self.extrinsics[:3, 3]
+        points_proj_cv, _ = cv2.projectPoints(transformed_points, rvec, tvec, K, None)
+        points_proj_cv = points_proj_cv.reshape(-1, 2)
+
+        # Transform to camera coordinates to check visibility
+        points_cam = (self.extrinsics[:3, :3] @ transformed_points.T).T + tvec
+        z_cam = points_cam[:, 2]
+
+        # Filter points within image bounds and in front of camera
+        mask = (
+            (z_cam > 0)
+            & (points_proj_cv[:, 0] >= 0)
+            & (points_proj_cv[:, 0] < self.camerainfo_msg.width)
+            & (points_proj_cv[:, 1] >= 0)
+            & (points_proj_cv[:, 1] < self.camerainfo_msg.height)
+        )
+
+        # Apply occlusion mask if available
+        if self.second_occlusion_mask is not None and len(self.second_occlusion_mask) == len(mask):
+            mask = np.logical_and(mask, self.second_occlusion_mask)
+
+        self.second_valid_indices = np.where(mask)[0]
+        self.second_points_proj_valid = points_proj_cv[self.second_valid_indices]
+        self.second_intensities_valid = second_intensities[self.second_valid_indices]
+        self.second_points_xyz = second_points_xyz  # Store original coordinates
+
+        if self.second_points_proj_valid.shape[0] == 0:
+            self.second_kdtree = None
+            return
+
+        self.second_kdtree = KDTree(self.second_points_proj_valid)
+
+        # Use different colormap for second point cloud (e.g., warm colors vs cool colors)
+        second_cmap = cm.get_cmap("plasma")  # Different from master point cloud colormap
+
+        # Color by intensity with different range
+        min_val = np.quantile(self.second_intensities_valid, 0.01)
+        max_val = np.quantile(self.second_intensities_valid, 0.90)
+        norm_values = np.clip(
+            (self.second_intensities_valid - min_val) / (max_val - min_val + 1e-6), 0, 1
+        )
+
+        colors = second_cmap(norm_values)
+        colors[:, 3] = 0.7  # Slightly more transparent to distinguish from master
+
+        self.second_point_cloud_item = PointCloudItem(
+            self.second_points_proj_valid, colors, self.point_size_spinbox.value()
+        )
+        self.scene.addItem(self.second_point_cloud_item)
+
     def update_corr_list(self):
         self.corr_list_widget.clear()
+
+        # Add master LiDAR to camera correspondences
         for p2d, corr_data in self.correspondences.items():
             p3d = corr_data["3d_mean"]
-            item_text = (
-                f"({p2d[0]:.1f}, {p2d[1]:.1f}) -> ({p3d[0]:.2f}, {p3d[1]:.2f}, {p3d[2]:.2f})"
-            )
+            item_text = f"Cam ({p2d[0]:.1f}, {p2d[1]:.1f}) ↔ Master ({p3d[0]:.2f}, {p3d[1]:.2f}, {p3d[2]:.2f})"
             item = QListWidgetItem(item_text)
-            item.setData(Qt.UserRole, p2d)
+            item.setData(Qt.UserRole, ("master_cam", p2d))
+            self.corr_list_widget.addItem(item)
+
+        # Add LiDAR-to-LiDAR correspondences
+        for second_3d, corr_data in self.lidar_to_lidar_correspondences.items():
+            master_3d = corr_data["master_3d_mean"]
+            item_text = f"Second ({second_3d[0]:.2f}, {second_3d[1]:.2f}, {second_3d[2]:.2f}) ↔ Master ({master_3d[0]:.2f}, {master_3d[1]:.2f}, {master_3d[2]:.2f})"
+            item = QListWidgetItem(item_text)
+            item.setData(Qt.UserRole, ("lidar_lidar", second_3d))
             self.corr_list_widget.addItem(item)
 
     def delete_correspondence(self):
         current_item = self.corr_list_widget.currentItem()
         if current_item:
-            p2d_key = current_item.data(Qt.UserRole)
-            if p2d_key in self.correspondences:
-                del self.correspondences[p2d_key]
+            corr_data = current_item.data(Qt.UserRole)
+            if corr_data[0] == "master_cam":
+                p2d_key = corr_data[1]
+                if p2d_key in self.correspondences:
+                    del self.correspondences[p2d_key]
+            elif corr_data[0] == "lidar_lidar":
+                second_3d_key = corr_data[1]
+                if second_3d_key in self.lidar_to_lidar_correspondences:
+                    del self.lidar_to_lidar_correspondences[second_3d_key]
             self.update_corr_list()
             self.clear_all_highlighting()
             self._update_calibrate_button_highlight()
@@ -817,29 +1066,78 @@ class CalibrationWidget(QWidget):
         self.clear_all_highlighting()
         if not current_item:
             return
-        p2d_key = current_item.data(Qt.UserRole)
-        corr = self.correspondences.get(p2d_key)
-        if not corr:
-            return
-        self.draw_cross_marker(QPointF(p2d_key[0], p2d_key[1]), QColor(Colors.CORRESPONDENCE_3D))
-        original_to_valid_idx_map = {
-            orig_idx: valid_idx for valid_idx, orig_idx in enumerate(self.valid_indices)
-        }
+
+        corr_data = current_item.data(Qt.UserRole)
         point_size = self.point_size_spinbox.value()
-        for original_point_idx in corr["3d_points_indices"]:
-            valid_idx = original_to_valid_idx_map.get(original_point_idx)
-            if valid_idx is not None and valid_idx < len(self.points_proj_valid):
-                point_2d = self.points_proj_valid[valid_idx]
-                item = QGraphicsEllipseItem(
-                    point_2d[0] - point_size / 2,
-                    point_2d[1] - point_size / 2,
-                    point_size,
-                    point_size,
-                )
-                item.setPen(QPen(QColor(Colors.CORRESPONDENCE_3D), 2))
-                item.setBrush(QBrush(QColor(Colors.CORRESPONDENCE_3D)))
-                self.scene.addItem(item)
-                self.highlighted_3d_items.append(item)
+
+        if corr_data[0] == "master_cam":
+            # Highlight master LiDAR to camera correspondence
+            p2d_key = corr_data[1]
+            corr = self.correspondences.get(p2d_key)
+            if not corr:
+                return
+            self.draw_cross_marker(
+                QPointF(p2d_key[0], p2d_key[1]), QColor(Colors.CORRESPONDENCE_3D)
+            )
+            original_to_valid_idx_map = {
+                orig_idx: valid_idx for valid_idx, orig_idx in enumerate(self.valid_indices)
+            }
+            for original_point_idx in corr["3d_points_indices"]:
+                valid_idx = original_to_valid_idx_map.get(original_point_idx)
+                if valid_idx is not None and valid_idx < len(self.points_proj_valid):
+                    point_2d = self.points_proj_valid[valid_idx]
+                    item = QGraphicsEllipseItem(
+                        point_2d[0] - point_size / 2,
+                        point_2d[1] - point_size / 2,
+                        point_size,
+                        point_size,
+                    )
+                    item.setPen(QPen(QColor(Colors.CORRESPONDENCE_3D), 2))
+                    item.setBrush(QBrush(QColor(Colors.CORRESPONDENCE_3D)))
+                    self.scene.addItem(item)
+                    self.highlighted_3d_items.append(item)
+
+        elif corr_data[0] == "lidar_lidar":
+            # Highlight LiDAR-to-LiDAR correspondence
+            second_3d_key = corr_data[1]
+            corr = self.lidar_to_lidar_correspondences.get(second_3d_key)
+            if not corr:
+                return
+
+            # Highlight second LiDAR point (if visible)
+            second_idx = corr["second_lidar_index"]
+            if hasattr(self, "second_valid_indices") and hasattr(self, "second_points_proj_valid"):
+                second_valid_idx_map = {
+                    orig_idx: valid_idx
+                    for valid_idx, orig_idx in enumerate(self.second_valid_indices)
+                }
+                second_valid_idx = second_valid_idx_map.get(second_idx)
+                if second_valid_idx is not None and second_valid_idx < len(
+                    self.second_points_proj_valid
+                ):
+                    point_2d = self.second_points_proj_valid[second_valid_idx]
+                    self.draw_cross_marker(
+                        QPointF(point_2d[0], point_2d[1]), QColor(255, 0, 255)
+                    )  # Magenta
+
+            # Highlight master LiDAR points
+            original_to_valid_idx_map = {
+                orig_idx: valid_idx for valid_idx, orig_idx in enumerate(self.valid_indices)
+            }
+            for original_point_idx in corr["master_3d_points_indices"]:
+                valid_idx = original_to_valid_idx_map.get(original_point_idx)
+                if valid_idx is not None and valid_idx < len(self.points_proj_valid):
+                    point_2d = self.points_proj_valid[valid_idx]
+                    item = QGraphicsEllipseItem(
+                        point_2d[0] - point_size / 2,
+                        point_2d[1] - point_size / 2,
+                        point_size,
+                        point_size,
+                    )
+                    item.setPen(QPen(QColor(0, 255, 0), 2))  # Green
+                    item.setBrush(QBrush(QColor(0, 255, 0)))
+                    self.scene.addItem(item)
+                    self.highlighted_3d_items.append(item)
 
     def draw_cross_marker(self, center, color):
         pen = QPen(color, 2)
@@ -874,16 +1172,29 @@ class CalibrationWidget(QWidget):
             return
         self.progress_bar.setVisible(True)
         QApplication.processEvents()
+
         ransac_method_str = self.pnp_solver_combo.currentText()
         pnp_flag = {"SQPnP": cv2.SOLVEPNP_SQPNP, "Iterative": cv2.SOLVEPNP_ITERATIVE}.get(
             ransac_method_str
         )
         lsq_method = self.lsq_method_combo.currentText()
-        calib_corr = [(p2d, corr["3d_mean"]) for p2d, corr in self.correspondences.items()]
         K = np.array(self.camerainfo_msg.k).reshape(3, 3)
-        self.extrinsics = calibration.calibrate(calib_corr, K, pnp_flag, lsq_method)
+
+        if self.has_second_pointcloud and len(self.lidar_to_lidar_correspondences) >= 3:
+            # Dual LiDAR calibration
+            master_cam_corr = [(p2d, corr["3d_mean"]) for p2d, corr in self.correspondences.items()]
+            self.extrinsics, self.second_lidar_transform = calibration.calibrate_dual_lidar(
+                master_cam_corr, self.lidar_to_lidar_correspondences, K, pnp_flag, lsq_method
+            )
+        else:
+            # Single LiDAR calibration
+            calib_corr = [(p2d, corr["3d_mean"]) for p2d, corr in self.correspondences.items()]
+            self.extrinsics = calibration.calibrate(calib_corr, K, pnp_flag, lsq_method)
+
         self.progress_bar.setVisible(False)
         self.project_pointcloud()
+        if self.has_second_pointcloud:
+            self.project_second_pointcloud()
         self.update_results_display()
         self._update_inputs_from_extrinsics()
         self._highlight_export_button()
@@ -910,5 +1221,17 @@ class CalibrationWidget(QWidget):
         """Emit signal to view calibration results in main window."""
         # Reset export button highlighting when clicked
         self.export_button.setStyleSheet(self.default_button_style)
-        # Use current extrinsics (includes manual adjustments)
-        self.calibration_completed.emit(self.extrinsics)
+
+        # Emit calibration results
+        if self.has_second_pointcloud:
+            # Dual LiDAR mode: emit both transforms
+            calibration_results = {
+                "mode": "dual_lidar",
+                "master_to_camera": self.extrinsics,
+                "master_to_second_lidar": self.second_lidar_transform,
+            }
+        else:
+            # Single LiDAR mode: emit single transform
+            calibration_results = {"mode": "single_lidar", "master_to_camera": self.extrinsics}
+
+        self.calibration_completed.emit(calibration_results)

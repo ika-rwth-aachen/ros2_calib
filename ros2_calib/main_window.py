@@ -24,12 +24,13 @@ import os
 from typing import Dict, List, Optional
 
 import numpy as np
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QDragEnterEvent, QDropEvent
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
     QFormLayout,
+    QGraphicsDropShadowEffect,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -39,7 +40,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QProgressBar,
     QPushButton,
-    QSizePolicy,
     QSpinBox,
     QStackedWidget,
     QTextEdit,
@@ -48,6 +48,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import ros_utils
+from . import tf_transformations as tf
 from .bag_handler import (
     RosbagProcessingWorker,
     convert_to_mock,
@@ -57,356 +58,355 @@ from .bag_handler import (
 from .calibration_widget import CalibrationWidget
 from .common import UIStyles
 from .frame_selection_widget import FrameSelectionWidget
+from .lidar2lidar_o3d_widget import launch_lidar2lidar_calibration
+from .tf_graph_widget import TFGraphWidget
 
 
 class MainWindow(QMainWindow):
+    # Signal for thread-safe calibration completion
+    calibration_completed = Signal(np.ndarray)
+
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("ros2_calib - LiDAR Camera Calibration")
+        self.setWindowTitle("ros2_calib - Multi-Sensor Calibration Tool")
         self.setGeometry(100, 100, 1800, 800)
         self.setAcceptDrops(True)
+
+        # Connect signals for thread-safe communication
+        self.calibration_completed.connect(self.show_calibration_results)
 
         # Initialize data containers
         self.topics = {}
         self.bag_file = None
         self.selected_topics = {}
         self.tf_tree = {}
-        self.current_transform = np.eye(4)
+        self.current_transform = np.eye(4, dtype=np.float64)
+        self.calibration_type = "LiDAR2Cam"  # Default type
+        self.calibrated_transform = np.eye(4, dtype=np.float64)
+        self.original_source_frame = ""
+        self.original_target_frame = ""
+        self.tf_graph_window = None  # To hold a reference to the pop-up window
 
         # Set up stacked widget for multiple views
         self.stacked_widget = QStackedWidget()
         self.setCentralWidget(self.stacked_widget)
 
         # Create and add the different views
+        self.setup_calibration_type_view()
         self.setup_load_view()
         self.setup_transform_view()
         self.setup_frame_selection_view()
         self.setup_results_view()
 
-        # Start with the load view
+        # Start with the calibration type selection view
         self.stacked_widget.setCurrentIndex(0)
+
+    def setup_calibration_type_view(self):
+        """Setup the calibration type selection view."""
+        self.calib_type_widget = QWidget()
+        self.calib_type_layout = QVBoxLayout(self.calib_type_widget)
+
+        self.calib_type_layout.addStretch()
+        title_label = QLabel("Select Calibration Type")
+        title_label.setStyleSheet("font-size: 24px; font-weight: bold; margin: 20px;")
+        title_label.setAlignment(Qt.AlignCenter)
+        self.calib_type_layout.addWidget(title_label)
+        desc_label = QLabel("Choose the type of calibration you want to perform:")
+        desc_label.setStyleSheet("font-size: 14px; margin: 10px; color: #666;")
+        desc_label.setAlignment(Qt.AlignCenter)
+        self.calib_type_layout.addWidget(desc_label)
+
+        button_container = QWidget()
+        button_layout = QHBoxLayout(button_container)
+        button_layout.addStretch()
+
+        self.lidar2cam_button = QPushButton("LiDAR ↔ Camera\nCalibration")
+        large_button_style = (
+            UIStyles.HIGHLIGHT_BUTTON
+            + """
+        QPushButton {
+            min-width: 220px;
+            min-height: 110px;
+            font-size: 18px;
+            font-weight: 600;
+            padding: 18px 30px;
+            margin: 18px;
+            border-radius: 14px;
+            border: 2px solid transparent;
+            background-color: #e45c28;
+        }
+        QPushButton:hover {
+            background-color: #f37b3e;
+        }
+        QPushButton:pressed {
+            background-color: #c64c1f;
+            padding-top: 20px;
+            padding-bottom: 16px;
+        }
+        """
+        )
+        self.lidar2cam_button.setStyleSheet(large_button_style)
+        self.lidar2cam_button.clicked.connect(lambda: self.select_calibration_type("LiDAR2Cam"))
+        self._apply_button_shadow(self.lidar2cam_button)
+        button_layout.addWidget(self.lidar2cam_button)
+
+        # Add spacing between buttons
+        button_layout.addSpacing(40)
+
+        self.lidar2lidar_button = QPushButton("LiDAR ↔ LiDAR\nCalibration")
+        self.lidar2lidar_button.setStyleSheet(large_button_style)
+        self.lidar2lidar_button.clicked.connect(lambda: self.select_calibration_type("LiDAR2LiDAR"))
+        self._apply_button_shadow(self.lidar2lidar_button)
+        button_layout.addWidget(self.lidar2lidar_button)
+
+        button_layout.addStretch()
+        self.calib_type_layout.addWidget(button_container)
+        self.calib_type_layout.addStretch()
+        self.stacked_widget.addWidget(self.calib_type_widget)
+
+    def select_calibration_type(self, calib_type):
+        """Handle calibration type selection."""
+        self.calibration_type = calib_type
+        print(f"[DEBUG] Selected calibration type: {calib_type}")
+        self.update_load_view_for_calibration_type()
+        self.stacked_widget.setCurrentIndex(1)
+
+    def _apply_button_shadow(self, button: QPushButton) -> None:
+        shadow = QGraphicsDropShadowEffect(button)
+        shadow.setBlurRadius(28)
+        shadow.setOffset(0, 10)
+        shadow.setColor(QColor(0, 0, 0, 90))
+        button.setGraphicsEffect(shadow)
+
+    def update_load_view_for_calibration_type(self):
+        """Update load view UI based on selected calibration type."""
+        is_lidar_cam = self.calibration_type == "LiDAR2Cam"
+        self.image_label.setVisible(is_lidar_cam)
+        self.image_topic_combo.setVisible(is_lidar_cam)
+        self.camerainfo_label.setVisible(is_lidar_cam)
+        self.camerainfo_topic_combo.setVisible(is_lidar_cam)
+        self.pointcloud2_label.setVisible(not is_lidar_cam)
+        self.pointcloud2_topic_combo.setVisible(not is_lidar_cam)
+        self.pointcloud_label.setText(
+            "PointCloud2 Topic:" if is_lidar_cam else "PointCloud2 Topic (Source):"
+        )
+        self.selection_group.setTitle(f"Topic Selection for {self.calibration_type} Calibration")
+        self.proceed_button.setText(
+            "Proceed to Frame Selection" if is_lidar_cam else "Proceed to Transform Selection"
+        )
 
     def setup_load_view(self):
         self.load_widget = QWidget()
         self.load_layout = QVBoxLayout(self.load_widget)
-
-        # Top section for loading
         load_section_layout = QHBoxLayout()
-        self.load_layout.addLayout(load_section_layout)
-
         self.load_bag_button = QPushButton("Load Rosbag")
         self.load_bag_button.clicked.connect(self.load_bag)
         load_section_layout.addWidget(self.load_bag_button)
-
-        # ROS version selection dropdown
-        ros_version_label = QLabel("ROS Version:")
-        load_section_layout.addWidget(ros_version_label)
+        load_section_layout.addWidget(QLabel("ROS Version:"))
         self.ros_version_combo = QComboBox()
         self.ros_version_combo.addItems(["JAZZY", "HUMBLE"])
-        self.ros_version_combo.setCurrentText("JAZZY")
-        self.ros_version_combo.setToolTip("Select the ROS2 version of your rosbag")
         load_section_layout.addWidget(self.ros_version_combo)
-
-        # Subtle drag & drop indicator
         drag_drop_label = QLabel("or Drag & Drop")
-        drag_drop_label.setStyleSheet(
-            "color: #666; font-size: 11px; font-style: italic; padding: 5px;"
-        )
+        drag_drop_label.setStyleSheet("color: #666; font-style: italic;")
         load_section_layout.addWidget(drag_drop_label)
-
         self.bag_path_label = QLabel("No rosbag loaded.")
-        self.bag_path_label.setStyleSheet("padding: 5px; border: 1px solid gray; color: white;")
-        load_section_layout.addWidget(self.bag_path_label)
-
-        # Topic list at the top for better visibility of long topic names
+        self.bag_path_label.setStyleSheet("padding: 5px; border: 1px solid gray;")
+        load_section_layout.addWidget(self.bag_path_label, 1)
+        self.load_layout.addLayout(load_section_layout)
         topic_list_group = QGroupBox("Available Topics")
-        topic_list_group.setMinimumHeight(600)  # Ensure it has a minimum height
         topic_list_layout = QVBoxLayout(topic_list_group)
-
         self.topic_list_widget = QListWidget()
         topic_list_layout.addWidget(self.topic_list_widget)
+        self.load_layout.addWidget(topic_list_group, 1)
 
-        self.load_layout.addWidget(topic_list_group)
-
-        # Calibration topic selection below, with full width for combo boxes
-        selection_group = QGroupBox("Topic Selection for Calibration")
-        calib_topic_layout = QGridLayout(selection_group)
-
-        # Image topic selection
-        calib_topic_layout.addWidget(QLabel("Image Topic:"), 0, 0)
+        self.selection_group = QGroupBox()
+        self.calib_topic_layout = QFormLayout(self.selection_group)
         self.image_topic_combo = QComboBox()
-        self.image_topic_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.image_topic_combo.currentIndexChanged.connect(self.auto_select_camera_info)
-        calib_topic_layout.addWidget(self.image_topic_combo, 0, 1, 1, 2)  # Span 2 columns
-
-        # CameraInfo topic selection
-        calib_topic_layout.addWidget(QLabel("CameraInfo Topic:"), 1, 0)
         self.camerainfo_topic_combo = QComboBox()
-        self.camerainfo_topic_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        calib_topic_layout.addWidget(self.camerainfo_topic_combo, 1, 1, 1, 2)  # Span 2 columns
-
-        # PointCloud2 topic selection
-        calib_topic_layout.addWidget(QLabel("PointCloud2 Topic:"), 2, 0)
         self.pointcloud_topic_combo = QComboBox()
-        self.pointcloud_topic_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        calib_topic_layout.addWidget(self.pointcloud_topic_combo, 2, 1, 1, 2)  # Span 2 columns
-
-        # Frame count selection
-        calib_topic_layout.addWidget(QLabel("Frame Samples:"), 3, 0)
+        self.pointcloud_topic_combo.currentTextChanged.connect(self.validate_lidar_topic_selection)
+        self.pointcloud2_topic_combo = QComboBox()
+        self.pointcloud2_topic_combo.currentTextChanged.connect(self.validate_lidar_topic_selection)
         self.frame_count_spinbox = QSpinBox()
-        self.frame_count_spinbox.setMinimum(3)
-        self.frame_count_spinbox.setMaximum(10)
+        self.frame_count_spinbox.setRange(3, 20)
         self.frame_count_spinbox.setValue(6)
         self.frame_count_spinbox.setSuffix(" frames")
-        self.frame_count_spinbox.setToolTip(
-            "Number of uniformly sampled frames to choose from during calibration"
-        )
-        calib_topic_layout.addWidget(self.frame_count_spinbox, 3, 1, 1, 2)  # Span 2 columns
 
-        # Proceed button
-        self.proceed_button = QPushButton("Proceed to Transform Selection")
+        self.image_label = QLabel("Image Topic:")
+        self.camerainfo_label = QLabel("CameraInfo Topic:")
+        self.pointcloud_label = QLabel("PointCloud2 Topic:")
+        self.pointcloud2_label = QLabel("PointCloud2 Topic (Target):")
+
+        self.calib_topic_layout.addRow(self.image_label, self.image_topic_combo)
+        self.calib_topic_layout.addRow(self.camerainfo_label, self.camerainfo_topic_combo)
+        self.calib_topic_layout.addRow(self.pointcloud_label, self.pointcloud_topic_combo)
+        self.calib_topic_layout.addRow(self.pointcloud2_label, self.pointcloud2_topic_combo)
+        self.calib_topic_layout.addRow("Frame Samples:", self.frame_count_spinbox)
+
+        self.proceed_button = QPushButton()
         self.proceed_button.setEnabled(False)
-        self.proceed_button.clicked.connect(self.proceed_to_transform_selection)
-        self.proceed_button.setStyleSheet("font-weight: bold; padding: 10px;")
-        calib_topic_layout.addWidget(self.proceed_button, 4, 0, 1, 3)  # Span all columns
+        self.proceed_button.clicked.connect(self.process_rosbag_data)
+        self.proceed_button.setStyleSheet(UIStyles.HIGHLIGHT_BUTTON)
+        self.progress_bar = QProgressBar(visible=False, textVisible=True)
+        self.calib_topic_layout.addRow(self.proceed_button)
+        self.calib_topic_layout.addRow(self.progress_bar)
 
-        # Progress bar for rosbag reading
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)  # Initially hidden
-        self.progress_bar.setTextVisible(True)
-        calib_topic_layout.addWidget(self.progress_bar, 4, 0, 1, 3)  # Span all columns
-
-        self.load_layout.addWidget(selection_group)
-
-        # Add stretch to push everything to the top
-        self.load_layout.addStretch()
-
-        # Add the load view to the stacked widget
+        self.load_layout.addWidget(self.selection_group)
         self.stacked_widget.addWidget(self.load_widget)
+        self.update_load_view_for_calibration_type()
 
     def setup_transform_view(self):
         self.transform_widget = QWidget()
         self.transform_layout = QVBoxLayout(self.transform_widget)
-
-        # Title
         self.tf_title_label = QLabel()
         self.tf_title_label.setStyleSheet("font-size: 14px; font-weight: bold; margin: 10px;")
         self.transform_layout.addWidget(self.tf_title_label)
 
-        # Back button
         back_button_layout = QHBoxLayout()
         self.back_button = QPushButton("← Back to Topic Selection")
-        self.back_button.clicked.connect(self.go_back_to_load_view)
+        self.back_button.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(1))
         back_button_layout.addWidget(self.back_button)
         back_button_layout.addStretch()
         self.transform_layout.addLayout(back_button_layout)
 
-        # TF Source Selection
         tf_group = QGroupBox("Transform Source")
         tf_layout = QVBoxLayout(tf_group)
-
-        # Dropdown for tf topics
         tf_topic_layout = QHBoxLayout()
         tf_topic_layout.addWidget(QLabel("TF Topic:"))
         self.tf_topic_combo = QComboBox()
         self.tf_topic_combo.currentTextChanged.connect(self.on_tf_topic_changed)
-        tf_topic_layout.addWidget(self.tf_topic_combo)
-
+        tf_topic_layout.addWidget(self.tf_topic_combo, 1)
         self.load_tf_button = QPushButton("Load TF Tree")
         self.load_tf_button.clicked.connect(self.load_tf_tree)
         tf_topic_layout.addWidget(self.load_tf_button)
-
         tf_layout.addLayout(tf_topic_layout)
-
-        # TF Tree visualization placeholder
         self.show_graph_button = QPushButton("Show TF Tree Graph")
         self.show_graph_button.clicked.connect(self.show_tf_graph)
         self.show_graph_button.setEnabled(False)
         tf_layout.addWidget(self.show_graph_button)
-
-        # TF info display
-        self.tf_info_text = QTextEdit()
-        self.tf_info_text.setMaximumHeight(150)
-        self.tf_info_text.setPlainText("No TF data loaded.")
+        self.tf_info_text = QTextEdit(plainText="No TF data loaded.", maximumHeight=150)
         tf_layout.addWidget(QLabel("TF Tree Information:"))
         tf_layout.addWidget(self.tf_info_text)
-
         self.transform_layout.addWidget(tf_group)
 
-        # Manual Transform Input
         manual_group = QGroupBox("Manual Transform Input")
         manual_layout = QGridLayout(manual_group)
-
-        # Translation inputs
+        self.tx_input, self.ty_input, self.tz_input = (
+            QLineEdit("0.0"),
+            QLineEdit("0.0"),
+            QLineEdit("0.0"),
+        )
+        self.rx_input, self.ry_input, self.rz_input = (
+            QLineEdit("0.0"),
+            QLineEdit("0.0"),
+            QLineEdit("0.0"),
+        )
         manual_layout.addWidget(QLabel("Translation (x, y, z):"), 0, 0)
-        self.tx_input = QLineEdit("0.0")
-        self.ty_input = QLineEdit("0.0")
-        self.tz_input = QLineEdit("0.0")
         manual_layout.addWidget(self.tx_input, 0, 1)
         manual_layout.addWidget(self.ty_input, 0, 2)
         manual_layout.addWidget(self.tz_input, 0, 3)
-
-        # Rotation inputs (Euler angles)
-        manual_layout.addWidget(QLabel("Rotation (roll, pitch, yaw):"), 1, 0)
-        self.rx_input = QLineEdit("0.0")
-        self.ry_input = QLineEdit("0.0")
-        self.rz_input = QLineEdit("0.0")
+        manual_layout.addWidget(QLabel("Rotation (roll, pitch, yaw) [rad]:"), 1, 0)
         manual_layout.addWidget(self.rx_input, 1, 1)
         manual_layout.addWidget(self.ry_input, 1, 2)
         manual_layout.addWidget(self.rz_input, 1, 3)
-
-        # Update transform button
         self.update_manual_button = QPushButton("Update Transform from Manual Input")
         self.update_manual_button.clicked.connect(self.update_manual_transform)
         manual_layout.addWidget(self.update_manual_button, 2, 0, 1, 4)
-
         self.transform_layout.addWidget(manual_group)
 
-        # Current Transform Display
         transform_group = QGroupBox("Current Transformation Matrix")
-        transform_layout = QVBoxLayout(transform_group)
-
-        self.transform_display = QTextEdit()
-        self.transform_display.setMaximumHeight(120)
-        self.transform_display.setFont("monospace")
-        transform_layout.addWidget(self.transform_display)
-
-        # Translation and Rotation display
-        self.translation_rotation_display = QTextEdit()
-        self.translation_rotation_display.setMaximumHeight(60)
-        self.translation_rotation_display.setFont("monospace")
-        transform_layout.addWidget(self.translation_rotation_display)
-
+        transform_layout_inner = QVBoxLayout(transform_group)
+        self.transform_display = QTextEdit(maximumHeight=180, readOnly=True, fontFamily="monospace")
+        transform_layout_inner.addWidget(self.transform_display)
         self.transform_layout.addWidget(transform_group)
 
-        # Action buttons
         button_layout = QHBoxLayout()
-
         self.use_identity_button = QPushButton("Use Identity Transform")
         self.use_identity_button.clicked.connect(self.use_identity_transform)
         button_layout.addWidget(self.use_identity_button)
-
         button_layout.addStretch()
-
         self.confirm_button = QPushButton("Start Calibration")
         self.confirm_button.clicked.connect(self.confirm_transformation)
         self.confirm_button.setStyleSheet(UIStyles.HIGHLIGHT_BUTTON)
         button_layout.addWidget(self.confirm_button)
-
         self.transform_layout.addLayout(button_layout)
-
-        # Initialize display
         self.update_transform_display()
-
-        # Add the transform view to the stacked widget
         self.stacked_widget.addWidget(self.transform_widget)
 
     def setup_frame_selection_view(self):
-        """Setup the frame selection view."""
         self.frame_selection_widget = FrameSelectionWidget(self)
         self.frame_selection_widget.frame_selected.connect(self.on_frame_selected)
-
-        # Add to stacked widget
         self.stacked_widget.addWidget(self.frame_selection_widget)
 
     def setup_results_view(self):
-        """Setup the calibration results view with TF graph and URDF integration."""
         self.results_widget = QWidget()
         self.results_layout = QVBoxLayout(self.results_widget)
-
-        # Title
-        self.results_title_label = QLabel("Calibration Results")
-        self.results_title_label.setStyleSheet("font-size: 16px; font-weight: bold; margin: 10px;")
-        self.results_layout.addWidget(self.results_title_label)
-
-        # Back button
+        title = QLabel("Calibration Export")
+        title.setStyleSheet("font-size: 18px; font-weight: bold; margin-bottom: 10px;")
+        self.results_layout.addWidget(title)
         back_layout = QHBoxLayout()
         self.results_back_button = QPushButton("← Back to Calibration")
         self.results_back_button.clicked.connect(self.go_back_to_calibration)
         back_layout.addWidget(self.results_back_button)
+
+        # Add frame selection dropdowns right next to the back button
+        back_layout.addWidget(QLabel("Source Frame:"))
+        self.source_frame_combo = QComboBox()
+        self.source_frame_combo.currentTextChanged.connect(self.update_target_transform)
+        back_layout.addWidget(self.source_frame_combo)
+
+        back_layout.addWidget(QLabel("Target Frame:"))
+        self.target_frame_combo = QComboBox()
+        self.target_frame_combo.currentTextChanged.connect(self.update_target_transform)
+        back_layout.addWidget(self.target_frame_combo)
+
         back_layout.addStretch()
         self.results_layout.addLayout(back_layout)
 
-        # Single column layout - Frame selection at top
-        frame_selection_widget = QWidget()
-        frame_selection_layout = QFormLayout(frame_selection_widget)
-
-        # Source frame
-        self.source_frame_label = QLabel()
-        frame_selection_layout.addRow("Source Frame:", self.source_frame_label)
-
-        # Target frame
-        self.target_frame_combo = QComboBox()
-        self.target_frame_combo.currentTextChanged.connect(self.update_transform_chain)
-        frame_selection_layout.addRow("Target Frame:", self.target_frame_combo)
-
-        self.results_layout.addWidget(frame_selection_widget)
-
-        # Transform chain display
-        chain_label = QLabel("Transformation Chain:")
-        chain_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
-        self.results_layout.addWidget(chain_label)
-        self.chain_display = QTextEdit()
-        self.chain_display.setMaximumHeight(60)
-        self.results_layout.addWidget(self.chain_display)
-
-        # Embedded TF graph visualization
-        self.graph_container = QWidget()
-        self.graph_container.setMinimumHeight(200)
-        self.graph_container.setMaximumHeight(300)
-
-        # Initialize with placeholder
+        chain_graph_group = QGroupBox("Transformation Path")
+        chain_graph_layout = QVBoxLayout(chain_graph_group)
+        self.chain_display = QTextEdit(maximumHeight=60, readOnly=True)
+        chain_graph_layout.addWidget(self.chain_display)
+        self.graph_container = QWidget(minimumHeight=400, maximumHeight=500)
         self.init_graph_placeholder()
+        chain_graph_layout.addWidget(self.graph_container)
+        self.results_layout.addWidget(chain_graph_group)
 
-        self.results_layout.addWidget(self.graph_container)
-
-        # Two column layout for results
         results_content_layout = QHBoxLayout()
-
-        # Left column: Calibration Results
-        left_group = QGroupBox("Calibration Results")
+        left_group = QGroupBox("Overall Calibrated Transform")
         left_layout = QVBoxLayout(left_group)
-
-        self.calibration_result_display = QTextEdit()
-        self.calibration_result_display.setMaximumHeight(400)
-        self.calibration_result_display.setFont("monospace")
+        self.calibration_result_display = QTextEdit(readOnly=True, fontFamily="monospace")
         left_layout.addWidget(self.calibration_result_display)
-
-        results_content_layout.addWidget(left_group, 1)
-
-        # Right column: Target Transform
-        right_group = QGroupBox("Target Transform")
+        results_content_layout.addWidget(left_group)
+        right_group = QGroupBox("Export Target Transform (Selected Frames)")
         right_layout = QVBoxLayout(right_group)
-
-        self.final_transform_display = QTextEdit()
-        self.final_transform_display.setMaximumHeight(400)
-        self.final_transform_display.setFont("monospace")
+        self.final_transform_display = QTextEdit(readOnly=True, fontFamily="monospace")
         right_layout.addWidget(self.final_transform_display)
-
-        results_content_layout.addWidget(right_group, 1)
-
+        results_content_layout.addWidget(right_group)
         self.results_layout.addLayout(results_content_layout)
 
-        # Export button centered below the two columns
         export_layout = QHBoxLayout()
         export_layout.addStretch()
-        self.export_calibration_button = QPushButton("Export Calibration")
+        self.export_calibration_button = QPushButton("Export Target Transform")
         self.export_calibration_button.clicked.connect(self.export_calibration_result)
+        self.export_calibration_button.setStyleSheet(UIStyles.HIGHLIGHT_BUTTON)
         export_layout.addWidget(self.export_calibration_button)
         export_layout.addStretch()
-
         self.results_layout.addLayout(export_layout)
-
-        # Add the results view to the stacked widget
         self.stacked_widget.addWidget(self.results_widget)
 
     def init_graph_placeholder(self):
-        """Initialize the graph container with a placeholder."""
-        layout = QVBoxLayout(self.graph_container)
-        placeholder = QLabel("TF Graph will appear here when data is available")
-        placeholder.setAlignment(Qt.AlignCenter)
-        placeholder.setStyleSheet("color: gray; font-style: italic;")
-        layout.addWidget(placeholder)
+        """Initialize or reset the graph container with a placeholder."""
+        layout = self.graph_container.layout()
+        if layout is None:
+            layout = QVBoxLayout(self.graph_container)
+
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
 
     def load_bag(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Open Rosbag", "", "MCAP Rosbag (*.mcap)")
@@ -414,247 +414,264 @@ class MainWindow(QMainWindow):
             self.load_bag_from_path(file_path)
 
     def find_yaml_file(self, mcap_path):
-        """Find the corresponding YAML file for an MCAP file.
-
-        Looks for either:
-        1. metadata.yaml in the same directory
-        2. A YAML file with the same base name as the MCAP file
-
-        Returns the path to the YAML file if found, None otherwise.
-        """
         directory = os.path.dirname(mcap_path)
-        mcap_basename = os.path.basename(mcap_path).replace(".mcap", "")
-
-        # Check for metadata.yaml first
+        mcap_basename = os.path.splitext(os.path.basename(mcap_path))[0]
         metadata_yaml = os.path.join(directory, "metadata.yaml")
         if os.path.exists(metadata_yaml):
             return metadata_yaml
-
-        # Check for matching filename yaml
         matching_yaml = os.path.join(directory, f"{mcap_basename}.yaml")
         if os.path.exists(matching_yaml):
             return matching_yaml
-
         return None
 
     def process_dropped_path(self, path):
         """Process a dropped file or folder path."""
-        if os.path.isfile(path):
-            # Direct .mcap file dropped
-            if path.endswith(".mcap"):
-                # Check if corresponding .yaml file exists
-                yaml_path = self.find_yaml_file(path)
-                if yaml_path:
-                    self.load_bag_from_path(path)
-                else:
-                    directory = os.path.dirname(path)
-                    mcap_basename = os.path.basename(path).replace(".mcap", "")
-                    self.bag_path_label.setText(
-                        f"Error: No YAML file found! Expected 'metadata.yaml' or '{mcap_basename}.yaml' in {os.path.basename(directory)}/"
-                    )
-                    self.bag_path_label.setStyleSheet(
-                        "padding: 5px; border: 1px solid red; color: red;"
-                    )
-            else:
-                self.bag_path_label.setText("Error: Only .mcap files are supported!")
-                self.bag_path_label.setStyleSheet(
-                    "padding: 5px; border: 1px solid red; color: red;"
-                )
-        elif os.path.isdir(path):
-            # Folder dropped - look for .mcap files
-            mcap_files = [f for f in os.listdir(path) if f.endswith(".mcap")]
-            if len(mcap_files) == 1:
-                mcap_path = os.path.join(path, mcap_files[0])
-                yaml_path = self.find_yaml_file(mcap_path)
-                if yaml_path:
-                    self.load_bag_from_path(mcap_path)
-                else:
-                    mcap_basename = mcap_files[0].replace(".mcap", "")
-                    self.bag_path_label.setText(
-                        f"Error: No YAML file found! Expected 'metadata.yaml' or '{mcap_basename}.yaml' in folder!"
-                    )
-                    self.bag_path_label.setStyleSheet(
-                        "padding: 5px; border: 1px solid red; color: red;"
-                    )
-            elif len(mcap_files) == 0:
-                self.bag_path_label.setText("Error: No .mcap file found in folder!")
-                self.bag_path_label.setStyleSheet(
-                    "padding: 5px; border: 1px solid red; color: red;"
-                )
+        self.bag_path_label.setStyleSheet("padding: 5px; border: 1px solid red;")
+        if os.path.isfile(path) and path.endswith(".mcap"):
+            if self.find_yaml_file(path):
+                self.load_bag_from_path(path)
             else:
                 self.bag_path_label.setText(
-                    "Error: Multiple .mcap files found! Please select one."
+                    "Error: Corresponding metadata.yaml or matching .yaml not found."
                 )
-                self.bag_path_label.setStyleSheet(
-                    "padding: 5px; border: 1px solid red; color: red;"
-                )
+        elif os.path.isdir(path):
+            mcap_files = [f for f in os.listdir(path) if f.endswith(".mcap")]
+            if len(mcap_files) == 1:
+                self.process_dropped_path(os.path.join(path, mcap_files[0]))
+            elif not mcap_files:
+                self.bag_path_label.setText("Error: No .mcap file found in the dropped folder.")
+            else:
+                self.bag_path_label.setText("Error: Multiple .mcap files found. Please drop one.")
         else:
-            self.bag_path_label.setText("Error: Invalid path!")
-            self.bag_path_label.setStyleSheet("padding: 5px; border: 1px solid red; color: red;")
+            self.bag_path_label.setText("Error: Please drop a valid .mcap file or folder.")
 
     def load_bag_from_path(self, file_path):
         """Load bag from a specific file path."""
         try:
             self.bag_file = file_path
             self.bag_path_label.setText(file_path)
-            self.bag_path_label.setStyleSheet("padding: 5px; border: 1px solid gray; color: white;")
+            self.bag_path_label.setStyleSheet("padding: 5px; border: 1px solid gray;")
             ros_version = self.ros_version_combo.currentText()
             self.topics = get_topic_info(file_path, ros_version)
             self.update_topic_widgets()
         except Exception as e:
             self.bag_path_label.setText(f"Error loading bag: {str(e)}")
-            self.bag_path_label.setStyleSheet("padding: 5px; border: 1px solid red; color: red;")
+            self.bag_path_label.setStyleSheet("padding: 5px; border: 1px solid red;")
 
     def update_topic_widgets(self):
         self.topic_list_widget.clear()
         self.image_topic_combo.clear()
         self.pointcloud_topic_combo.clear()
+        self.pointcloud2_topic_combo.clear()
         self.camerainfo_topic_combo.clear()
 
-        image_topics = []
-        pointcloud_topics = []
-        camerainfo_topics = []
+        topic_types = {
+            "image": [
+                t
+                for t, m, _ in self.topics
+                if m in ["sensor_msgs/msg/Image", "sensor_msgs/msg/CompressedImage"]
+            ],
+            "pointcloud": [t for t, m, _ in self.topics if m == "sensor_msgs/msg/PointCloud2"],
+            "camerainfo": [t for t, m, _ in self.topics if m == "sensor_msgs/msg/CameraInfo"],
+        }
 
         for topic, msgtype, msgcount in self.topics:
             self.topic_list_widget.addItem(f"{topic} ({msgtype}) - {msgcount} messages")
-            if msgtype in ["sensor_msgs/msg/Image", "sensor_msgs/msg/CompressedImage"]:
-                image_topics.append(topic)
-            elif msgtype == "sensor_msgs/msg/PointCloud2":
-                pointcloud_topics.append(topic)
-            elif msgtype == "sensor_msgs/msg/CameraInfo":
-                camerainfo_topics.append(topic)
 
-        self.image_topic_combo.addItems(image_topics)
-        self.pointcloud_topic_combo.addItems(pointcloud_topics)
-        self.camerainfo_topic_combo.addItems(camerainfo_topics)
-
-        if image_topics and pointcloud_topics and camerainfo_topics:
-            self.proceed_button.setEnabled(True)
+        self.image_topic_combo.addItems(topic_types["image"])
+        self.pointcloud_topic_combo.addItems(topic_types["pointcloud"])
+        self.pointcloud2_topic_combo.addItems(topic_types["pointcloud"])
+        self.camerainfo_topic_combo.addItems(topic_types["camerainfo"])
+        if self.calibration_type == "LiDAR2Cam" and self.image_topic_combo.count():
+            self.auto_select_camera_info(self.image_topic_combo.currentIndex())
+        else:
+            self.update_proceed_button_state()
 
     def auto_select_camera_info(self, index):
-        if index == -1:  # No item selected
+        if self.calibration_type != "LiDAR2Cam" or index == -1:
+            self.update_proceed_button_state()
+            return
+
+        camera_info_count = self.camerainfo_topic_combo.count()
+        if camera_info_count == 0:
+            self.update_proceed_button_state()
             return
 
         image_topic = self.image_topic_combo.currentText()
+        if not image_topic:
+            self.update_proceed_button_state()
+            return
 
-        # --- New, more robust logic ---
-        parts = image_topic.split("/")
-        base_path = None
-        # Find the part of the topic name that contains 'image' and construct the base path.
-        for i, part in enumerate(parts):
-            if "image" in part:
-                base_path = "/".join(parts[:i])
-                break
+        transport_suffixes = {
+            "compressed",
+            "compressedDepth",
+            "compressed_depth",
+            "Theora",
+            "theora",
+        }
 
-        possible_info_topics = []
-        if base_path:
-            # Handle cases like /camera/image_raw -> /camera/camera_info
-            possible_info_topics.append(f"{base_path}/camera_info")
+        def candidate_paths(topic: str) -> List[str]:
+            tokens = [part for part in topic.strip("/").split("/") if part]
+            while tokens and tokens[-1] in transport_suffixes:
+                tokens.pop()
 
-        # --- Fallback to old logic ---
-        possible_info_topics.extend(
-            [
-                image_topic.replace("/image_raw", "/camera_info"),
-                image_topic.replace("/image_color", "/camera_info"),
-                image_topic.replace("/image_rect", "/camera_info"),
-                image_topic.replace("/image_rect_color", "/camera_info"),
-                # Handle compressed topics
-                image_topic.replace("/compressed", "").replace("/image_rect_color", "/camera_info"),
-                image_topic.replace("/compressed", "").replace("/image_raw", "/camera_info"),
-                image_topic.replace("/compressed", "").replace("/image_color", "/camera_info"),
-            ]
-        )
+            variants: List[str] = []
+            if tokens:
+                variants.append("/" + "/".join(tokens[:-1] + ["camera_info"]))
 
-        # Remove duplicates while preserving order
-        possible_info_topics = list(dict.fromkeys(possible_info_topics))
+            for idx in range(len(tokens) - 1, -1, -1):
+                if "image" in tokens[idx]:
+                    replaced = tokens[:]
+                    replaced[idx] = "camera_info"
+                    variants.append("/" + "/".join(replaced))
+                    variants.append("/" + "/".join(replaced[: idx + 1]))
+                    break
 
-        for topic in possible_info_topics:
-            found_index = self.camerainfo_topic_combo.findText(topic, Qt.MatchExactly)
-            if found_index != -1:
+            base_path = "/" + "/".join(tokens[:-1]) if len(tokens) > 1 else ""
+            if base_path:
+                variants.append(f"{base_path}/camera_info")
+
+            seen = set()
+            unique_variants: List[str] = []
+            for item in variants:
+                if item and item not in seen:
+                    seen.add(item)
+                    unique_variants.append(item)
+            return unique_variants
+
+        for candidate in candidate_paths(image_topic):
+            found_index = self.camerainfo_topic_combo.findText(candidate, Qt.MatchExactly)
+            if found_index != -1 and found_index != self.camerainfo_topic_combo.currentIndex():
+                self.camerainfo_topic_combo.blockSignals(True)
                 self.camerainfo_topic_combo.setCurrentIndex(found_index)
+                self.camerainfo_topic_combo.blockSignals(False)
+                self.update_proceed_button_state()
                 return
 
-    def proceed_to_transform_selection(self):
-        """Proceed to transformation selection window with optimized message reading."""
-        # Show progress bar and disable proceed button
+        def prefix_score(candidate: str) -> int:
+            image_parts = image_topic.strip("/").split("/")
+            camera_parts = candidate.strip("/").split("/")
+            score = 0
+            for image_part, camera_part in zip(image_parts, camera_parts):
+                if image_part == camera_part:
+                    score += 2
+                    continue
+                if "image" in image_part and "camera_info" in camera_part:
+                    score += 1
+                    continue
+                break
+            return score
+
+        best_index = None
+        best_score = 0
+        for candidate_index in range(camera_info_count):
+            candidate_topic = self.camerainfo_topic_combo.itemText(candidate_index)
+            score = prefix_score(candidate_topic)
+            if score > best_score:
+                best_score = score
+                best_index = candidate_index
+
+        if best_index is not None and best_index != self.camerainfo_topic_combo.currentIndex():
+            self.camerainfo_topic_combo.blockSignals(True)
+            self.camerainfo_topic_combo.setCurrentIndex(best_index)
+            self.camerainfo_topic_combo.blockSignals(False)
+
+        self.update_proceed_button_state()
+
+    def validate_lidar_topic_selection(self):
+        if self.calibration_type != "LiDAR2LiDAR":
+            return
+        source_topic = self.pointcloud_topic_combo.currentText()
+        target_topic = self.pointcloud2_topic_combo.currentText()
+        if source_topic and source_topic == target_topic:
+            self.pointcloud2_topic_combo.blockSignals(True)
+            for i in range(self.pointcloud2_topic_combo.count()):
+                if self.pointcloud2_topic_combo.itemText(i) != source_topic:
+                    self.pointcloud2_topic_combo.setCurrentIndex(i)
+                    break
+            self.pointcloud2_topic_combo.blockSignals(False)
+        self.update_proceed_button_state()
+
+    def update_proceed_button_state(self):
+        if self.calibration_type == "LiDAR2Cam":
+            is_valid = all(
+                [
+                    self.image_topic_combo.currentText(),
+                    self.pointcloud_topic_combo.currentText(),
+                    self.camerainfo_topic_combo.currentText(),
+                ]
+            )
+        else:
+            is_valid = all(
+                [
+                    self.pointcloud_topic_combo.currentText(),
+                    self.pointcloud2_topic_combo.currentText(),
+                    self.pointcloud_topic_combo.currentText()
+                    != self.pointcloud2_topic_combo.currentText(),
+                ]
+            )
+        self.proceed_button.setEnabled(is_valid)
+
+    def process_rosbag_data(self):
+        """Read and process required data from the rosbag in a worker thread."""
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
-        self.progress_bar.setFormat("Preparing to read rosbag...")
         self.proceed_button.setEnabled(False)
-
-        # Force UI update
         self.repaint()
 
-        image_topic = self.image_topic_combo.currentText()
-        pointcloud_topic = self.pointcloud_topic_combo.currentText()
-        camerainfo_topic = self.camerainfo_topic_combo.currentText()
+        # This dictionary maps all available topic names to their types
+        topic_types = {topic: msgtype for topic, msgtype, _ in self.topics}
+        tf_topics = [
+            topic
+            for topic in topic_types
+            if "tf" in topic.lower() and "TFMessage" in topic_types[topic]
+        ]
 
-        # Create topic type lookup dictionary
-        self.progress_bar.setValue(10)
-        self.progress_bar.setFormat("Analyzing topics...")
-        self.repaint()
+        if self.calibration_type == "LiDAR2Cam":
+            selected_topics_data = {
+                "calibration_type": self.calibration_type,
+                "image_topic": self.image_topic_combo.currentText(),
+                "pointcloud_topic": self.pointcloud_topic_combo.currentText(),
+                "camerainfo_topic": self.camerainfo_topic_combo.currentText(),
+                "tf_topics": tf_topics,
+            }
+        else:  # LiDAR2LiDAR
+            selected_topics_data = {
+                "calibration_type": self.calibration_type,
+                "pointcloud_topic": self.pointcloud_topic_combo.currentText(),
+                "pointcloud2_topic": self.pointcloud2_topic_combo.currentText(),
+                "tf_topics": tf_topics,
+            }
 
-        topic_types = {}
-        for topic, msgtype, _ in self.topics:
-            topic_types[topic] = msgtype
+        # --- THIS IS THE FIX ---
+        # Correctly build the topics_to_read dictionary.
+        # The KEYS should be the actual topic names (e.g., '/drivers/lidar/points')
+        # and the VALUES should be their message types.
+        topics_to_read = {}
+        for key, topic_name in selected_topics_data.items():
+            # Find all keys that represent a user-selected topic
+            if key.endswith("_topic") and topic_name:
+                # Use the topic_name (the value) as the key for our new dict
+                if topic_name in topic_types:
+                    topics_to_read[topic_name] = topic_types[topic_name]
 
-        # Find available TF topics
-        tf_topics = []
-        for topic, msgtype, _ in self.topics:
-            if "tf" in topic.lower() and "TFMessage" in msgtype:
-                tf_topics.append(topic)
-
-        print(f"[DEBUG] Found TF topics: {tf_topics}")
-
-        # Read all messages in one pass for efficiency
-        topics_to_read = {
-            image_topic: topic_types[image_topic],
-            pointcloud_topic: topic_types[pointcloud_topic],
-            camerainfo_topic: topic_types[camerainfo_topic],
-        }
-
-        # Add TF topics to the read list
+        # Add all found TF topics to the list of topics to be read
         for tf_topic in tf_topics:
-            topics_to_read[tf_topic] = topic_types[tf_topic]
+            if tf_topic in topic_types:
+                topics_to_read[tf_topic] = topic_types[tf_topic]
 
-        self.progress_bar.setValue(20)
-        self.progress_bar.setFormat(f"Reading {len(topics_to_read)} topics from rosbag...")
-        self.repaint()
-
-        print(f"[DEBUG] Reading all messages in single pass: {list(topics_to_read.keys())}")
-
-        # Prepare selected topics data
-        selected_topics_data = {
-            "image_topic": image_topic,
-            "pointcloud_topic": pointcloud_topic,
-            "camerainfo_topic": camerainfo_topic,
-            "tf_topics": tf_topics,
-        }
-
-        print(f"[DEBUG] Starting threaded processing of {len(topics_to_read)} topics")
-
-        # Get total message count for progress tracking
-        ros_version = self.ros_version_combo.currentText()
-        total_messages = get_total_message_count(self.bag_file, ros_version)
-        print(f"[DEBUG] Total messages in bag: {total_messages}")
-
-        # Get frame count from UI
-        frame_samples = self.frame_count_spinbox.value()
-
-        # Create topic message counts dictionary from self.topics
-        topic_message_counts = {}
-        for topic_name, msg_type, msg_count in self.topics:
-            topic_message_counts[topic_name] = msg_count
-
-        # Create and start worker thread
+        # The worker receives the correctly structured dictionary
         self.processing_worker = RosbagProcessingWorker(
-            self.bag_file,
-            topics_to_read,
-            selected_topics_data,
-            total_messages,
-            frame_samples,
-            topic_message_counts,
-            ros_version,
+            bag_file=self.bag_file,
+            topics_to_read=topics_to_read,
+            selected_topics_data=selected_topics_data,
+            total_messages=get_total_message_count(
+                self.bag_file, self.ros_version_combo.currentText()
+            ),
+            frame_samples=self.frame_count_spinbox.value(),
+            topic_message_counts={name: count for name, _, count in self.topics},
+            ros_version=self.ros_version_combo.currentText(),
+            sync_tolerance=0.05,
         )
         self.processing_worker.progress_updated.connect(self.update_processing_progress)
         self.processing_worker.processing_finished.connect(self.on_processing_finished)
@@ -662,922 +679,600 @@ class MainWindow(QMainWindow):
         self.processing_worker.start()
 
     def update_processing_progress(self, value, message):
-        """Update progress bar from worker thread."""
         self.progress_bar.setValue(value)
         self.progress_bar.setFormat(message)
 
-    def on_processing_finished(self, raw_messages, topic_types, selected_topics_data):
-        """Handle completion of rosbag processing."""
-        print("[DEBUG] Rosbag processing completed successfully")
-
-        # Check if we have frame samples (multiple frames)
-        has_frame_samples = "frame_samples" in raw_messages and self.frame_count_spinbox.value() > 1
-
-        if has_frame_samples:
-            # Store all frame samples for selection
-            self.frame_samples = raw_messages["frame_samples"]
-            self.selected_topics_data = selected_topics_data
-            self.topic_types = topic_types
-
-            # Extract frame info from first sample for display
-            image_topic = selected_topics_data["image_topic"]
-            pointcloud_topic = selected_topics_data["pointcloud_topic"]
-            camerainfo_topic = selected_topics_data["camerainfo_topic"]
-
-            # Get first sample to extract frame IDs
-            first_pointcloud = (
-                self.frame_samples.get(pointcloud_topic, [{}])[0].get("data")
-                if self.frame_samples.get(pointcloud_topic)
-                else None
-            )
-            first_camerainfo = (
-                self.frame_samples.get(camerainfo_topic, [{}])[0].get("data")
-                if self.frame_samples.get(camerainfo_topic)
-                else None
-            )
-
-            if first_pointcloud:
-                self.lidar_frame = self.extract_frame_id(first_pointcloud)
-            if first_camerainfo:
-                self.camera_frame = self.extract_frame_id(first_camerainfo)
-
-            # Store tf messages
-            self.tf_messages = {
-                topic: raw_messages.get(topic)
-                for topic in selected_topics_data["tf_topics"]
-                if topic in raw_messages
-            }
-
-            # Go to frame selection view (index 2)
-            self.frame_selection_widget.set_frame_samples(self.frame_samples, image_topic)
-            self.stacked_widget.setCurrentIndex(2)
-
-        else:
-            # Original single frame logic
-            # Store processed data
-            self.selected_topics = {
-                "image_topic": selected_topics_data["image_topic"],
-                "pointcloud_topic": selected_topics_data["pointcloud_topic"],
-                "camerainfo_topic": selected_topics_data["camerainfo_topic"],
-                "topic_types": topic_types,
-                "raw_messages": raw_messages,
-                "tf_messages": {
-                    topic: raw_messages.get(topic)
-                    for topic in selected_topics_data["tf_topics"]
-                    if topic in raw_messages
-                },
-            }
-
-            # Extract frame IDs for transformation lookup
-            lidar_frame = self.extract_frame_id(
-                raw_messages[selected_topics_data["pointcloud_topic"]]
-            )
-            camera_frame = self.extract_frame_id(
-                raw_messages[selected_topics_data["camerainfo_topic"]]
-            )
-
-            # Store frame information and switch to transform view
-            self.lidar_frame = lidar_frame
-            self.camera_frame = camera_frame
-
-            # Update title in transform view
-            self.tf_title_label.setText(
-                f"Select Initial Transformation: {self.lidar_frame} → {self.camera_frame}"
-            )
-
-            # Load TF topics in the transform view
-            self.load_tf_topics_in_transform_view()
-
-            # Switch to transform view (index 1)
-            self.stacked_widget.setCurrentIndex(1)
-
-        # Hide progress bar and re-enable button
+    def on_processing_finished(
+        self, raw_messages: Dict, topic_types: Dict, selected_topics_data: Dict
+    ):
+        """
+        Handles completion of rosbag processing. Correctly routes to frame selection
+        for LiDAR2Cam or directly to transform selection for LiDAR2LiDAR.
+        This method is now robust against different return formats from the worker.
+        """
+        print("[DEBUG] Rosbag processing completed successfully.")
         self.progress_bar.setVisible(False)
         self.proceed_button.setEnabled(True)
 
-        # Clean up worker
-        self.processing_worker.deleteLater()
-        self.processing_worker = None
+        self.topic_types = topic_types
+        self.selected_topics_data = selected_topics_data
 
-    def on_frame_selected(self, frame_index):
-        """Handle frame selection and proceed to transform view."""
-        print(f"[DEBUG] Frame {frame_index + 1} selected")
+        self.tf_messages = {
+            topic: raw_messages.get(topic)
+            for topic in selected_topics_data.get("tf_topics", [])
+            if topic in raw_messages
+        }
 
-        # Get the selected frame data
+        # Check if the worker returned multiple frame samples or a single synchronized message set.
+        if "frame_samples" in raw_messages and raw_messages["frame_samples"]:
+            print("[DEBUG] Processing multi-frame samples.")
+            self.frame_samples = raw_messages["frame_samples"]
+
+            if self.calibration_type == "LiDAR2Cam":
+                pointcloud_topic = selected_topics_data["pointcloud_topic"]
+                camerainfo_topic = selected_topics_data["camerainfo_topic"]
+
+                self.lidar_frame = self.extract_frame_id(
+                    self.frame_samples[pointcloud_topic][0]["data"]
+                )
+                self.camera_frame = self.extract_frame_id(
+                    self.frame_samples[camerainfo_topic][0]["data"]
+                )
+
+                self.frame_selection_widget.set_frame_samples(
+                    self.frame_samples, selected_topics_data["image_topic"]
+                )
+                self.stacked_widget.setCurrentIndex(3)  # Switch to Frame Selection View
+
+            else:  # LiDAR2LiDAR multi-frame (take the first)
+                pointcloud_topic = selected_topics_data["pointcloud_topic"]
+                pointcloud2_topic = selected_topics_data["pointcloud2_topic"]
+
+                if not self.frame_samples.get(pointcloud_topic) or not self.frame_samples.get(
+                    pointcloud2_topic
+                ):
+                    self.on_processing_failed(
+                        "No synchronized message pairs found for LiDAR topics."
+                    )
+                    return
+
+                first_pc1 = self.frame_samples[pointcloud_topic][0]["data"]
+                first_pc2 = self.frame_samples[pointcloud2_topic][0]["data"]
+                self.prepare_for_transform_view(
+                    topic_types, selected_topics_data, first_pc1, first_pc2
+                )
+
+        else:
+            # Fallback for workers that return a single message set (flat dictionary).
+            print("[DEBUG] Processing single message set (no 'frame_samples' key found).")
+            if self.calibration_type == "LiDAR2LiDAR":
+                pointcloud_topic = selected_topics_data["pointcloud_topic"]
+                pointcloud2_topic = selected_topics_data["pointcloud2_topic"]
+
+                pc1_msg = raw_messages.get(pointcloud_topic)
+                pc2_msg = raw_messages.get(pointcloud2_topic)
+
+                if not pc1_msg or not pc2_msg:
+                    self.on_processing_failed("Synchronized LiDAR messages not found in bag.")
+                    return
+                self.prepare_for_transform_view(topic_types, selected_topics_data, pc1_msg, pc2_msg)
+            else:  # Fallback for LiDAR2Cam single frame
+                image_topic = selected_topics_data["image_topic"]
+                pointcloud_topic = selected_topics_data["pointcloud_topic"]
+                camerainfo_topic = selected_topics_data["camerainfo_topic"]
+
+                self.lidar_frame = self.extract_frame_id(raw_messages[pointcloud_topic])
+                self.camera_frame = self.extract_frame_id(raw_messages[camerainfo_topic])
+
+                self.selected_topics = {
+                    "image_topic": image_topic,
+                    "pointcloud_topic": pointcloud_topic,
+                    "camerainfo_topic": camerainfo_topic,
+                    "topic_types": topic_types,
+                    "raw_messages": {
+                        topic: raw_messages.get(topic)
+                        for topic in [image_topic, pointcloud_topic, camerainfo_topic]
+                    },
+                    "tf_messages": self.tf_messages,
+                }
+                self.tf_title_label.setText(
+                    f"Select Initial Transformation: {self.lidar_frame} → {self.camera_frame}"
+                )
+                self.load_tf_topics_in_transform_view()
+                self.stacked_widget.setCurrentIndex(2)  # Switch to Transform View
+
+        if hasattr(self, "processing_worker") and self.processing_worker:
+            self.processing_worker.deleteLater()
+            self.processing_worker = None
+
+    def prepare_for_transform_view(self, topic_types, selected_topics_data, pc1_msg, pc2_msg):
+        """Helper function to set up data structures and switch to the transform view for LiDAR2LiDAR."""
+        pointcloud_topic = selected_topics_data["pointcloud_topic"]
+        pointcloud2_topic = selected_topics_data["pointcloud2_topic"]
+
+        self.lidar_frame = self.extract_frame_id(pc1_msg)
+        self.lidar2_frame = self.extract_frame_id(pc2_msg)
+
+        self.selected_topics = {
+            "calibration_type": "LiDAR2LiDAR",
+            "pointcloud_topic": pointcloud_topic,
+            "pointcloud2_topic": pointcloud2_topic,
+            "topic_types": topic_types,
+            "raw_messages": {
+                pointcloud_topic: pc1_msg,
+                pointcloud2_topic: pc2_msg,
+            },
+            "tf_messages": self.tf_messages,
+        }
+        self.tf_title_label.setText(
+            f"Select Initial Transformation: {self.lidar_frame} → {self.lidar2_frame}"
+        )
+        self.load_tf_topics_in_transform_view()
+        self.stacked_widget.setCurrentIndex(2)  # Switch to Transform View
+
+    def on_frame_selected(self, frame_index: int):
+        print(f"[DEBUG] Frame {frame_index + 1} selected for LiDAR2Cam calibration.")
         image_topic = self.selected_topics_data["image_topic"]
         pointcloud_topic = self.selected_topics_data["pointcloud_topic"]
         camerainfo_topic = self.selected_topics_data["camerainfo_topic"]
-
-        # Extract selected frame data
-        selected_image = self.frame_samples[image_topic][frame_index]["data"]
-        selected_pointcloud = self.frame_samples[pointcloud_topic][frame_index]["data"]
-        selected_camerainfo = self.frame_samples[camerainfo_topic][frame_index]["data"]
-
-        # Create the selected_topics structure as if single frame was processed
         self.selected_topics = {
             "image_topic": image_topic,
             "pointcloud_topic": pointcloud_topic,
             "camerainfo_topic": camerainfo_topic,
             "topic_types": self.topic_types,
             "raw_messages": {
-                image_topic: selected_image,
-                pointcloud_topic: selected_pointcloud,
-                camerainfo_topic: selected_camerainfo,
+                image_topic: self.frame_samples[image_topic][frame_index]["data"],
+                pointcloud_topic: self.frame_samples[pointcloud_topic][frame_index]["data"],
+                camerainfo_topic: self.frame_samples[camerainfo_topic][frame_index]["data"],
             },
             "tf_messages": self.tf_messages,
         }
-
-        # Update title in transform view
         self.tf_title_label.setText(
             f"Select Initial Transformation: {self.lidar_frame} → {self.camera_frame}"
         )
-
-        # Load TF topics in the transform view
         self.load_tf_topics_in_transform_view()
-
-        # Switch to transform view (index 1)
-        self.stacked_widget.setCurrentIndex(1)
+        self.stacked_widget.setCurrentIndex(2)
 
     def on_processing_failed(self, error_message):
-        """Handle rosbag processing failure."""
         print(f"[ERROR] Rosbag processing failed: {error_message}")
-
-        # Show error and reset UI
         self.progress_bar.setFormat(f"Error: {error_message}")
-        self.progress_bar.setVisible(True)  # Keep visible to show error
+        self.progress_bar.setStyleSheet("QProgressBar::chunk { background-color: red; }")
         self.proceed_button.setEnabled(True)
-
-        # Clean up worker
         if hasattr(self, "processing_worker") and self.processing_worker:
             self.processing_worker.deleteLater()
             self.processing_worker = None
 
     def extract_frame_id(self, msg):
-        """Extract frame_id from message header."""
-        if hasattr(msg, "header") and hasattr(msg.header, "frame_id"):
-            return msg.header.frame_id
-        return "unknown_frame"
+        return getattr(getattr(msg, "header", None), "frame_id", "unknown_frame")
 
     def proceed_to_calibration(self, initial_transform):
-        """Proceed to calibration with selected transformation."""
-        # Close transformation widget
-        if hasattr(self, "transform_widget"):
-            self.transform_widget.close()
+        for i in range(self.stacked_widget.count() - 1, 4, -1):
+            widget = self.stacked_widget.widget(i)
+            self.stacked_widget.removeWidget(widget)
+            widget.deleteLater()
 
-        # Convert messages to mock objects
-        image_topic = self.selected_topics["image_topic"]
-        pointcloud_topic = self.selected_topics["pointcloud_topic"]
-        camerainfo_topic = self.selected_topics["camerainfo_topic"]
-        topic_types = self.selected_topics["topic_types"]
-        raw_messages = self.selected_topics["raw_messages"]
+        if self.calibration_type == "LiDAR2LiDAR":
+            self.proceed_to_lidar_calibration_with_transform(initial_transform)
+            return
 
-        image_msg = convert_to_mock(raw_messages[image_topic], topic_types[image_topic])
+        image_msg = convert_to_mock(
+            self.selected_topics["raw_messages"][self.selected_topics["image_topic"]],
+            self.selected_topics["topic_types"][self.selected_topics["image_topic"]],
+        )
         pointcloud_msg = convert_to_mock(
-            raw_messages[pointcloud_topic], topic_types[pointcloud_topic]
+            self.selected_topics["raw_messages"][self.selected_topics["pointcloud_topic"]],
+            self.selected_topics["topic_types"][self.selected_topics["pointcloud_topic"]],
         )
         camerainfo_msg = convert_to_mock(
-            raw_messages[camerainfo_topic], topic_types[camerainfo_topic]
+            self.selected_topics["raw_messages"][self.selected_topics["camerainfo_topic"]],
+            self.selected_topics["topic_types"][self.selected_topics["camerainfo_topic"]],
         )
-
-        # Create calibration widget with initial transformation
         self.calibration_widget = CalibrationWidget(
             image_msg, pointcloud_msg, camerainfo_msg, ros_utils, initial_transform
         )
-
-        # Connect the calibration completion signal
         self.calibration_widget.calibration_completed.connect(self.show_calibration_results)
+        self.stacked_widget.setCurrentIndex(self.stacked_widget.addWidget(self.calibration_widget))
 
-        # Add calibration widget to stacked widget and switch to it
-        self.stacked_widget.addWidget(
-            self.calibration_widget
-        )  # This will be index 4 (after frame selection was added)
-        calibration_index = (
-            self.stacked_widget.count() - 1
-        )  # Get the actual index of the calibration widget
-        self.stacked_widget.setCurrentIndex(calibration_index)  # Switch to calibration view
-        print(f"[DEBUG] Switched to calibration view at index {calibration_index}")
+    def proceed_to_lidar_calibration_with_transform(self, initial_transform):
+        raw_msgs = self.selected_topics["raw_messages"]
+        topic_types = self.selected_topics["topic_types"]
+        pc_topic1 = self.selected_topics["pointcloud_topic"]
+        pc_topic2 = self.selected_topics["pointcloud2_topic"]
 
-    # Transformation View Methods
+        pointcloud_msg1 = convert_to_mock(raw_msgs[pc_topic1], topic_types[pc_topic1])
+        pointcloud_msg2 = convert_to_mock(raw_msgs[pc_topic2], topic_types[pc_topic2])
 
-    def go_back_to_load_view(self):
-        """Go back to the load view."""
-        self.stacked_widget.setCurrentIndex(0)
+        import threading
+
+        threading.Thread(
+            target=self._run_lidar_calibration_thread,
+            args=(pointcloud_msg1, pointcloud_msg2, initial_transform),
+            daemon=True,
+        ).start()
+
+    def _run_lidar_calibration_thread(self, pc1, pc2, initial_transform):
+        try:
+            launch_lidar2lidar_calibration(
+                pc1, pc2, initial_transform, self._on_lidar_calibration_completed
+            )
+        except Exception as e:
+            print(f"[ERROR] LiDAR calibration thread failed: {e}")
+
+    def _on_lidar_calibration_completed(self, final_transform: np.ndarray):
+        print("[DEBUG] LiDAR calibration completed via callback.")
+        self.calibration_completed.emit(final_transform)
 
     def go_back_to_calibration(self):
-        """Go back to the calibration view."""
-        # Find the calibration widget in the stacked widget
+        if self.calibration_type == "LiDAR2LiDAR":
+            self.restart_lidar_calibration()
+            return
         for i in range(self.stacked_widget.count()):
-            widget = self.stacked_widget.widget(i)
-            if hasattr(widget, "calibration_completed"):  # CalibrationWidget has this signal
+            if isinstance(self.stacked_widget.widget(i), CalibrationWidget):
                 self.stacked_widget.setCurrentIndex(i)
-                print(f"[DEBUG] Switched back to calibration view at index {i}")
                 return
-        print("[ERROR] Could not find calibration widget to go back to")
 
     def get_results_view_index(self):
-        """Get the index of the results view in the stacked widget."""
-        # The results view should be the one with results_layout
-        for i in range(self.stacked_widget.count()):
-            widget = self.stacked_widget.widget(i)
-            if widget == self.results_widget:
-                return i
-        print("[ERROR] Could not find results widget")
-        return 3  # Fallback to expected index
+        return 4
+
+    def restart_lidar_calibration(self):
+        raw_msgs = self.selected_topics.get("raw_messages")
+        topic_types = self.selected_topics.get("topic_types")
+        pc_topic1 = self.selected_topics.get("pointcloud_topic")
+        pc_topic2 = self.selected_topics.get("pointcloud2_topic")
+
+        if not (raw_msgs and topic_types and pc_topic1 and pc_topic2):
+            print("[WARN] Missing LiDAR topics or raw messages; cannot restart calibration.")
+            return
+
+        if isinstance(self.calibrated_transform, np.ndarray):
+            initial_transform = np.array(self.calibrated_transform, copy=True)
+        else:
+            initial_transform = np.eye(4, dtype=np.float64)
+
+        self.proceed_to_lidar_calibration_with_transform(initial_transform)
 
     def load_tf_topics_in_transform_view(self):
-        """Load TF topics from preloaded data into transform view."""
         self.tf_topic_combo.clear()
-
-        if self.selected_topics.get("tf_messages"):
-            tf_topics = list(self.selected_topics["tf_messages"].keys())
+        tf_messages = self.selected_topics.get("tf_messages", self.tf_messages)
+        if tf_messages:
+            tf_topics = list(tf_messages.keys())
             self.tf_topic_combo.addItems(tf_topics)
-
-            if tf_topics:
-                print(f"[DEBUG] Loaded TF topics in transform view: {tf_topics}")
-                # Automatically process the first tf_static topic if available
-                tf_static_topics = [topic for topic in tf_topics if "tf_static" in topic]
-                if tf_static_topics:
-                    self.tf_topic_combo.setCurrentText(tf_static_topics[0])
-                    # Process immediately since we already have the data
-                    self.load_tf_tree_from_preloaded()
-                else:
-                    self.tf_topic_combo.setCurrentIndex(0)
-            else:
-                self.tf_topic_combo.addItem("No TF topics found")
-                self.load_tf_button.setEnabled(False)
+            tf_static = next(
+                (t for t in tf_topics if "tf_static" in t), tf_topics[0] if tf_topics else None
+            )
+            if tf_static:
+                self.tf_topic_combo.setCurrentText(tf_static)
+                self.load_tf_tree_from_preloaded()
         else:
             self.tf_topic_combo.addItem("No TF topics found")
             self.load_tf_button.setEnabled(False)
 
     def on_tf_topic_changed(self):
-        """Reset TF tree when topic selection changes."""
         self.tf_tree = {}
         self.tf_info_text.setPlainText("Select 'Load TF Tree' to load transformations.")
         self.show_graph_button.setEnabled(False)
 
     def load_tf_tree(self):
-        """Load TF tree from selected topic."""
-        topic_name = self.tf_topic_combo.currentText()
-        if not topic_name or "No TF topics" in topic_name or "Error" in topic_name:
-            return
-
-        # Use preloaded data if available
-        if (
-            self.selected_topics.get("tf_messages")
-            and topic_name in self.selected_topics["tf_messages"]
-        ):
-            self.load_tf_tree_from_preloaded()
-        else:
-            self.tf_info_text.setPlainText("No preloaded TF data available.")
+        self.load_tf_tree_from_preloaded()
 
     def load_tf_tree_from_preloaded(self):
-        """Load TF tree from preloaded message data."""
         topic_name = self.tf_topic_combo.currentText()
-        tf_messages = self.selected_topics.get("tf_messages", {})
-
+        tf_messages = self.selected_topics.get("tf_messages", self.tf_messages)
         if not topic_name or topic_name not in tf_messages:
             return
 
-        try:
-            print(f"[DEBUG] Loading TF tree from preloaded data for topic: {topic_name}")
+        self.tf_tree = self.parse_preloaded_tf_message(tf_messages[topic_name])
+        self.update_tf_info_display()
+        self.try_find_transform()
+        self.show_graph_button.setEnabled(bool(self.tf_tree))
 
-            # Get the preloaded message data
-            msg_data = tf_messages[topic_name]
-            self.tf_tree = self.parse_preloaded_tf_message(topic_name, msg_data)
-
-            self.update_tf_info_display()
-            self.try_find_transform()
-
-            if self.tf_tree:
-                self.show_graph_button.setEnabled(True)
-
-        except Exception as e:
-            self.tf_info_text.setPlainText(f"Error loading preloaded TF tree: {str(e)}")
-            print(f"[DEBUG] Error in load_tf_tree_from_preloaded: {str(e)}")
-
-    def parse_preloaded_tf_message(self, topic_name: str, msg_data) -> Dict[str, Dict]:
-        """Parse preloaded TF message."""
+    def parse_preloaded_tf_message(self, msg_data) -> Dict[str, Dict]:
         tf_tree = {}
-
-        # Convert rosbag message to our TFMessage format
-        tf_msg = self.deserialize_tf_message(msg_data)
-
-        for transform_stamped in tf_msg.transforms:
-            parent_frame = transform_stamped.header.frame_id
-            child_frame = transform_stamped.child_frame_id
-            transform = transform_stamped.transform
-
-            # Store the transformation matrix
-            transform_matrix = ros_utils.transform_to_numpy(transform)
-
-            if parent_frame not in tf_tree:
-                tf_tree[parent_frame] = {}
-
-            tf_tree[parent_frame][child_frame] = {
-                "transform": transform_matrix,
-                "transform_msg": transform,
+        for transform_stamped in self.deserialize_tf_message(msg_data).transforms:
+            parent = transform_stamped.header.frame_id
+            child = transform_stamped.child_frame_id
+            tf_tree.setdefault(parent, {})[child] = {
+                "transform": ros_utils.transform_to_numpy(transform_stamped.transform)
             }
-
-        print(
-            f"[DEBUG] Built TF tree from preloaded data with {len(tf_tree)} parent frames and {len(tf_msg.transforms)} transforms"
-        )
         return tf_tree
 
     def deserialize_tf_message(self, msg_data) -> ros_utils.TFMessage:
-        """Convert rosbag message data to our TFMessage format."""
+        """
+        Convert raw rosbag TF message data to our internal mock TFMessage format.
+        This version is corrected to handle metadata fields from the rosbags library.
+        """
+        if not hasattr(msg_data, "transforms"):
+            return ros_utils.TFMessage(transforms=[])
+
         transforms = []
+        for transform_msg in msg_data.transforms:
+            # Get the translation and rotation objects
+            translation_obj = transform_msg.transform.translation
+            rotation_obj = transform_msg.transform.rotation
 
-        # Handle rosbag TFMessage format
-        if hasattr(msg_data, "transforms"):
-            for tf_stamped in msg_data.transforms:
-                # Extract header information
-                frame_id = getattr(tf_stamped.header, "frame_id", "unknown")
-                child_frame_id = getattr(tf_stamped, "child_frame_id", "unknown")
+            # Instead of using **vars(), we explicitly access the x, y, z, w attributes.
+            # This is safer and ignores any extra metadata like '__msgtype__'.
+            new_transform = ros_utils.Transform(
+                translation=ros_utils.Vector3(
+                    x=translation_obj.x, y=translation_obj.y, z=translation_obj.z
+                ),
+                rotation=ros_utils.Quaternion(
+                    x=rotation_obj.x, y=rotation_obj.y, z=rotation_obj.z, w=rotation_obj.w
+                ),
+            )
 
-                # Extract transform data
-                translation = tf_stamped.transform.translation
-                rotation = tf_stamped.transform.rotation
-
-                header = ros_utils.Header(frame_id=frame_id)
-                transform = ros_utils.Transform(
-                    translation=ros_utils.Vector3(
-                        x=translation.x, y=translation.y, z=translation.z
-                    ),
-                    rotation=ros_utils.Quaternion(
-                        x=rotation.x, y=rotation.y, z=rotation.z, w=rotation.w
-                    ),
-                )
-                transforms.append(
-                    ros_utils.TransformStamped(
-                        header=header, child_frame_id=child_frame_id, transform=transform
-                    )
-                )
+            new_stamped = ros_utils.TransformStamped(
+                header=ros_utils.Header(frame_id=transform_msg.header.frame_id),
+                child_frame_id=transform_msg.child_frame_id,
+                transform=new_transform,
+            )
+            transforms.append(new_stamped)
 
         return ros_utils.TFMessage(transforms=transforms)
 
     def try_find_transform(self):
-        """Try to find transformation between lidar and camera frames."""
         if not self.tf_tree:
             return
-
-        transform_matrix = self.find_transform_path(self.lidar_frame, self.camera_frame)
-        if transform_matrix is not None:
+        source = self.lidar_frame
+        target = self.camera_frame if self.calibration_type == "LiDAR2Cam" else self.lidar2_frame
+        if (transform_matrix := self.find_transform_path(source, target)) is not None:
             self.current_transform = transform_matrix
             self.update_transform_display()
             self.update_manual_inputs_from_matrix()
 
     def find_transform_path(self, from_frame: str, to_frame: str) -> Optional[np.ndarray]:
-        """Find transformation path between two frames in the TF tree using graph traversal."""
         if from_frame == to_frame:
-            return np.eye(4)  # Identity for same frame
-
-        # Build adjacency list for bidirectional search
-        graph = {}
-        for parent_frame, children in self.tf_tree.items():
-            if parent_frame not in graph:
-                graph[parent_frame] = []
-            for child_frame, data in children.items():
-                if child_frame not in graph:
-                    graph[child_frame] = []
-                # Add bidirectional edges
-                graph[parent_frame].append(
-                    (child_frame, data["transform"], False)
-                )  # False = forward
-                graph[child_frame].append((parent_frame, data["transform"], True))  # True = inverse
-
-        # BFS to find shortest path
-        from collections import deque
-
-        if from_frame not in graph or to_frame not in graph:
+            return np.eye(4)
+        if not self.tf_tree:
             return None
 
-        queue = deque([(from_frame, np.eye(4), [from_frame])])
+        from collections import deque
+
+        q = deque([(from_frame, np.eye(4))])
         visited = {from_frame}
 
-        while queue:
-            current_frame, current_transform, path = queue.popleft()
+        adj = {frame: [] for frame in self._get_all_tf_frames()}
+        for p, children in self.tf_tree.items():
+            for c, data in children.items():
+                adj[p].append((c, data["transform"]))
+                adj[c].append((p, np.linalg.inv(data["transform"])))
 
-            if current_frame == to_frame:
-                return current_transform
-
-            for neighbor, edge_transform, is_inverse in graph.get(current_frame, []):
+        while q:
+            curr_frame, T = q.popleft()
+            if curr_frame == to_frame:
+                return T
+            for neighbor, t in adj.get(curr_frame, []):
                 if neighbor not in visited:
                     visited.add(neighbor)
-                    # Apply transformation
-                    if is_inverse:
-                        new_transform = np.dot(current_transform, np.linalg.inv(edge_transform))
-                    else:
-                        new_transform = np.dot(current_transform, edge_transform)
-
-                    new_path = path + [neighbor]
-                    queue.append((neighbor, new_transform, new_path))
-
+                    q.append((neighbor, T @ t))
         return None
 
     def find_transformation_path_frames(
         self, from_frame: str, to_frame: str
     ) -> Optional[List[str]]:
-        """Find the sequence of frames in the transformation path."""
         if from_frame == to_frame:
             return [from_frame]
-
-        # Build adjacency list
-        graph = {}
-        for parent_frame, children in self.tf_tree.items():
-            if parent_frame not in graph:
-                graph[parent_frame] = []
-            for child_frame in children.keys():
-                if child_frame not in graph:
-                    graph[child_frame] = []
-                graph[parent_frame].append(child_frame)
-                graph[child_frame].append(parent_frame)
-
-        # BFS to find shortest path
-        from collections import deque
-
-        if from_frame not in graph or to_frame not in graph:
+        if not self.tf_tree:
             return None
 
-        queue = deque([(from_frame, [from_frame])])
+        from collections import deque
+
+        q = deque([(from_frame, [from_frame])])
         visited = {from_frame}
 
-        while queue:
-            current_frame, path = queue.popleft()
+        adj = {frame: [] for frame in self._get_all_tf_frames()}
+        for p, children in self.tf_tree.items():
+            for c in children:
+                adj[p].append(c)
+                adj[c].append(p)
 
-            if current_frame == to_frame:
+        while q:
+            curr_frame, path = q.popleft()
+            if curr_frame == to_frame:
                 return path
-
-            for neighbor in graph.get(current_frame, []):
+            for neighbor in adj.get(curr_frame, []):
                 if neighbor not in visited:
                     visited.add(neighbor)
-                    new_path = path + [neighbor]
-                    queue.append((neighbor, new_path))
-
+                    q.append((neighbor, path + [neighbor]))
         return None
 
     def update_tf_info_display(self):
-        """Update the TF tree information display."""
         if not self.tf_tree:
             self.tf_info_text.setPlainText("No TF data available.")
             return
-
-        info_text = "Available transformations:\n"
-        for parent_frame, children in self.tf_tree.items():
-            for child_frame in children.keys():
-                info_text += f"  {parent_frame} → {child_frame}\n"
-
-        # Check for transformation path
-        transform_found = self.find_transform_path(self.lidar_frame, self.camera_frame)
-        path_frames = self.find_transformation_path_frames(self.lidar_frame, self.camera_frame)
-
-        if transform_found is not None and path_frames:
-            info_text += (
-                f"\n✓ Found transformation path: {self.lidar_frame} → {self.camera_frame}\n"
-            )
-            if len(path_frames) > 2:
-                path_str = " → ".join(path_frames)
-                info_text += f"  Path: {path_str}\n"
-                info_text += f"  ({len(path_frames) - 1} hops through {len(path_frames) - 2} intermediate frames)"
-            else:
-                info_text += "  (Direct transformation)"
-        else:
-            info_text += f"\n✗ No transformation found: {self.lidar_frame} → {self.camera_frame}"
-
-        self.tf_info_text.setPlainText(info_text)
+        source = self.lidar_frame
+        target = self.camera_frame if self.calibration_type == "LiDAR2Cam" else self.lidar2_frame
+        path_frames = self.find_transformation_path_frames(source, target)
+        path_info = (
+            f"\n✓ Found transformation path: {' → '.join(path_frames)}"
+            if path_frames
+            else f"\n✗ No transformation found: {source} → {target}"
+        )
+        self.tf_info_text.setPlainText(
+            f"Available transformations: {sum(len(c) for c in self.tf_tree.values())}{path_info}"
+        )
 
     def show_tf_graph(self):
-        """Show TF tree as a node graph."""
         if not self.tf_tree:
             return
-
-        # Import the graph widget class from the original transformation_widget
-        from .transformation_widget import TFGraphWidget
-
-        # Find transformation path to highlight in graph
-        path_frames = self.find_transformation_path_frames(self.lidar_frame, self.camera_frame)
-
-        self.tf_graph_widget = TFGraphWidget(
-            self.tf_tree, self.lidar_frame, self.camera_frame, path_frames
-        )
-        self.tf_graph_widget.show()
+        source = self.lidar_frame
+        target = self.camera_frame if self.calibration_type == "LiDAR2Cam" else self.lidar2_frame
+        path_frames = self.find_transformation_path_frames(source, target)
+        self.tf_graph_window = TFGraphWidget(self.tf_tree, source, target, path_frames, parent=self)
+        self.tf_graph_window.show()
 
     def update_manual_transform(self):
-        """Update transform from manual input fields."""
         try:
-            tx = float(self.tx_input.text())
-            ty = float(self.ty_input.text())
-            tz = float(self.tz_input.text())
-            rx = float(self.rx_input.text())
-            ry = float(self.ry_input.text())
-            rz = float(self.rz_input.text())
+            from scipy.spatial.transform import Rotation
 
-            # Create transformation matrix from translation and Euler angles
-            from . import tf_transformations as tf
-
-            translation_matrix = tf.translation_matrix([tx, ty, tz])
-            rotation_matrix = tf.euler_matrix(rx, ry, rz)
-            self.current_transform = np.dot(translation_matrix, rotation_matrix)
-
+            rot = Rotation.from_euler(
+                "xyz",
+                [
+                    float(self.rx_input.text()),
+                    float(self.ry_input.text()),
+                    float(self.rz_input.text()),
+                ],
+            )
+            self.current_transform = np.eye(4, dtype=np.float64)
+            self.current_transform[:3, :3] = rot.as_matrix()
+            self.current_transform[:3, 3] = [
+                float(self.tx_input.text()),
+                float(self.ty_input.text()),
+                float(self.tz_input.text()),
+            ]
             self.update_transform_display()
-
         except ValueError as e:
-            self.tf_info_text.setPlainText(f"Error parsing manual input: {str(e)}")
+            print(f"[ERROR] Invalid manual transform input: {e}")
 
     def update_manual_inputs_from_matrix(self):
-        """Update manual input fields from current transformation matrix."""
-        try:
-            from . import tf_transformations as tf
-
-            translation = tf.translation_from_matrix(self.current_transform)
-            euler = tf.euler_from_matrix(self.current_transform)
-
-            self.tx_input.setText(f"{translation[0]:.6f}")
-            self.ty_input.setText(f"{translation[1]:.6f}")
-            self.tz_input.setText(f"{translation[2]:.6f}")
-            self.rx_input.setText(f"{euler[0]:.6f}")
-            self.ry_input.setText(f"{euler[1]:.6f}")
-            self.rz_input.setText(f"{euler[2]:.6f}")
-
-        except Exception:
-            pass  # Ignore errors in updating input fields
+        trans = tf.translation_from_matrix(self.current_transform)
+        euler = tf.euler_from_matrix(self.current_transform)
+        self.tx_input.setText(f"{trans[0]:.6f}")
+        self.ty_input.setText(f"{trans[1]:.6f}")
+        self.tz_input.setText(f"{trans[2]:.6f}")
+        self.rx_input.setText(f"{euler[0]:.6f}")
+        self.ry_input.setText(f"{euler[1]:.6f}")
+        self.rz_input.setText(f"{euler[2]:.6f}")
 
     def use_identity_transform(self):
-        """Set current transform to identity matrix."""
-        self.current_transform = np.eye(4)
+        self.current_transform = np.eye(4, dtype=np.float64)
         self.update_transform_display()
         self.update_manual_inputs_from_matrix()
 
     def update_transform_display(self):
-        """Update the transformation matrix display."""
-        display_text = "Transformation Matrix (4x4):\n"
-        for i in range(4):
-            row_text = "  ".join(f"{self.current_transform[i, j]:8.4f}" for j in range(4))
-            display_text += f"[{row_text}]\n"
+        matrix_str = "\n".join(
+            ["  ".join([f"{val:8.4f}" for val in row]) for row in self.current_transform]
+        )
+        trans = tf.translation_from_matrix(self.current_transform)
+        rpy = tf.euler_from_matrix(self.current_transform)
 
-        self.transform_display.setPlainText(display_text)
-
-        # Update translation and rotation display
-        from scipy.spatial.transform import Rotation
-
-        from . import tf_transformations as tf
-
-        try:
-            translation = tf.translation_from_matrix(self.current_transform)
-            rpy = Rotation.from_matrix(self.current_transform[:3, :3]).as_euler(
-                "xyz", degrees=False
-            )
-
-            translation_text = (
-                f"XYZ: [{translation[0]:.6f}, {translation[1]:.6f}, {translation[2]:.6f}]"
-            )
-            rotation_text = f"RPY: [{rpy[0]:.6f}, {rpy[1]:.6f}, {rpy[2]:.6f}]"
-
-            self.translation_rotation_display.setPlainText(f"{translation_text}\n{rotation_text}")
-        except Exception:
-            self.translation_rotation_display.setPlainText(
-                "Translation: [0.0, 0.0, 0.0]\nRPY: [0.0, 0.0, 0.0]"
-            )
+        combined_display = f"Transformation Matrix:\n{matrix_str}\n\nTranslation and Rotation:\nXYZ: [{trans[0]:.4f}, {trans[1]:.4f}, {trans[2]:.4f}]\nRPY: [{rpy[0]:.4f}, {rpy[1]:.4f}, {rpy[2]:.4f}]"
+        self.transform_display.setPlainText(combined_display)
 
     def confirm_transformation(self):
-        """Confirm and proceed to calibration with selected transformation."""
-        # Invert the transformation for LiDAR-to-camera projection
-        # The transformation represents camera-to-lidar, but we need lidar-to-camera
-        inverted_transform = np.linalg.inv(self.current_transform)
-        print(f"[DEBUG] Original transform:\n{self.current_transform}")
-        print(f"[DEBUG] Inverted transform for projection:\n{inverted_transform}")
+        self.proceed_to_calibration(self.current_transform)
 
-        # Proceed directly to calibration
-        self.proceed_to_calibration(inverted_transform)
+    def show_calibration_results(self, calibration_results):
+        print("[DEBUG] show_calibration_results called on main thread.")
+        print(f"[DEBUG] Received calibration_results: {calibration_results}")
+        print(f"[DEBUG] Results type: {type(calibration_results)}")
 
-    # Calibration Results View Methods
+        # Handle both old format (direct numpy array) and new format (dictionary)
+        if isinstance(calibration_results, dict):
+            calibrated_transform = calibration_results["master_to_camera"]
+        elif isinstance(calibration_results, np.ndarray):
+            calibrated_transform = calibration_results
+        else:
+            print(f"[ERROR] Unexpected calibration result type: {type(calibration_results)}")
+            return
 
-    def show_calibration_results(self, calibrated_transform):
-        """Show calibration results and TF integration options."""
         self.calibrated_transform = calibrated_transform
-
-        # Switch to results view (index 3 after frame selection was added)
-        results_index = self.get_results_view_index()
-        self.stacked_widget.setCurrentIndex(results_index)  # Results view
-        print(f"[DEBUG] Switched to results view at index {results_index}")
-
-        # Populate the results view
+        if self.calibration_type == "LiDAR2Cam":
+            self.calibrated_transform = np.linalg.inv(calibrated_transform)
+            self.original_source_frame = self.lidar_frame
+            self.original_target_frame = self.camera_frame
+        else:
+            self.original_source_frame = self.lidar_frame
+            self.original_target_frame = self.lidar2_frame
         self.populate_results_view()
+        self.stacked_widget.setCurrentIndex(self.get_results_view_index())
+
+    def _get_all_tf_frames(self) -> List[str]:
+        frames = set(self.tf_tree.keys())
+        for children in self.tf_tree.values():
+            frames.update(children.keys())
+        return sorted(list(frames))
 
     def populate_results_view(self):
-        """Populate the results view with calibration data."""
-        # Set source frame
-        self.source_frame_label.setText(self.lidar_frame)
-
-        # Find all frames in the transformation chain from LiDAR to camera optical frame
-        chain_frames = self.find_frames_in_lidar_to_camera_chain()
-        # Filter out the source frame (LiDAR frame) since it can't be both source and target
-        valid_target_frames = [frame for frame in chain_frames if frame != self.lidar_frame]
+        self.display_transform_urdf(
+            self.calibration_result_display,
+            self.calibrated_transform,
+            self.original_source_frame,
+            self.original_target_frame,
+        )
+        all_frames = self._get_all_tf_frames()
+        self.source_frame_combo.blockSignals(True)
+        self.target_frame_combo.blockSignals(True)
+        self.source_frame_combo.clear()
+        self.source_frame_combo.addItems(all_frames)
         self.target_frame_combo.clear()
-        self.target_frame_combo.addItems(valid_target_frames)
+        self.target_frame_combo.addItems(all_frames)
+        self.source_frame_combo.setCurrentText(self.original_source_frame)
+        self.target_frame_combo.setCurrentText(self.original_target_frame)
+        self.source_frame_combo.blockSignals(False)
+        self.target_frame_combo.blockSignals(False)
+        self.update_target_transform()
 
-        # Try to set the original camera frame as default
-        camera_index = self.target_frame_combo.findText(self.camera_frame)
-        if camera_index >= 0:
-            self.target_frame_combo.setCurrentIndex(camera_index)
+    def update_target_transform(self):
+        new_source = self.source_frame_combo.currentText()
+        new_target = self.target_frame_combo.currentText()
+        if not new_source or not new_target:
+            return
+        path_frames = self.find_transformation_path_frames(new_source, new_target)
+        self.chain_display.setPlainText(
+            " → ".join(path_frames)
+            if path_frames
+            else f"No static path found between {new_source} and {new_target}."
+        )
+        self.update_embedded_graph(new_source, new_target)
 
-        # Display calibrated transform
-        self.display_calibrated_transform()
+        T_orig_src_to_new_src = self.find_transform_path(self.original_source_frame, new_source)
+        T_orig_tgt_to_new_tgt = self.find_transform_path(self.original_target_frame, new_target)
 
-        # Update transform chain
-        self.update_transform_chain()
-
-        # Show embedded graph
-        self.update_embedded_graph()
-
-    def find_connected_frames(self, frame):
-        """Find all frames connected to the given frame through valid TF paths."""
-        if not self.tf_tree:
-            return [frame]
-
-        # Use the existing find_transformation_path_frames method to check reachability
-        all_frames = set()
-
-        # Get all unique frame names from the TF tree
-        for parent_frame, children in self.tf_tree.items():
-            all_frames.add(parent_frame)
-            all_frames.update(children.keys())
-
-        # Filter to only include frames that have a valid path from the given frame
-        connected_frames = []
-        for target_frame in all_frames:
-            if target_frame == frame:
-                connected_frames.append(target_frame)
-            else:
-                # Check if there's a valid transformation path
-                path = self.find_transformation_path_frames(frame, target_frame)
-                if path is not None:
-                    connected_frames.append(target_frame)
-
-        return sorted(connected_frames)
-
-    def find_frames_in_lidar_to_camera_chain(self):
-        """Find all frames that are on the transformation path from LiDAR to camera optical frame."""
-        if not self.tf_tree:
-            return [self.camera_frame]
-
-        # Get the path from LiDAR to camera optical frame
-        path_frames = self.find_transformation_path_frames(self.lidar_frame, self.camera_frame)
-
-        if path_frames:
-            # Return all frames in the path, but starting from camera side frames
-            # This gives options like: camera_optical_frame, camera_center, camera_link, etc.
-            # Reverse the path so camera frames come first (more intuitive for selection)
-            return list(reversed(path_frames))
-        else:
-            # If no path found, just return the camera frame
-            return [self.camera_frame]
-
-    def _sanitize_frame_id(self, frame_id):
-        """Convert frame ID to valid URDF joint name by replacing / with _ and - with _."""
-        return frame_id.replace("/", "_").replace("-", "_")
-
-    def display_calibrated_transform(self):
-        """Display the calibrated transformation matrix."""
-        # For URDF, we need the inverse transformation T_lidar_camera (parent → child)
-        urdf_transform = np.linalg.inv(self.calibrated_transform)
-
-        display_text = f"{self.lidar_frame} → {self.camera_frame}:\n"
-        for i in range(4):
-            row_text = "  ".join(f"{urdf_transform[i, j]:8.4f}" for j in range(4))
-            display_text += f"[{row_text}]\n"
-
-        # Add translation and rotation info
-        from scipy.spatial.transform import Rotation
-
-        urdf_tvec = urdf_transform[:3, 3]
-        urdf_rpy = Rotation.from_matrix(urdf_transform[:3, :3]).as_euler("xyz", degrees=False)
-
-        display_text += f"\nXYZ: [{urdf_tvec[0]:.6f}, {urdf_tvec[1]:.6f}, {urdf_tvec[2]:.6f}]"
-        display_text += f"\nRPY: [{urdf_rpy[0]:.6f}, {urdf_rpy[1]:.6f}, {urdf_rpy[2]:.6f}]"
-
-        # Add URDF snippet - use original frame names for joint name
-        joint_name = f"{self.lidar_frame}_2_{self.camera_frame}_calibrated"
-        display_text += "\n\nURDF Joint:\n"
-        display_text += f'<joint name="{joint_name}" type="fixed">\n'
-        display_text += f'  <parent link="{self.lidar_frame}" />\n'
-        display_text += f'  <child link="{self.camera_frame}" />\n'
-        display_text += f'  <origin xyz="{urdf_tvec[0]:.6f} {urdf_tvec[1]:.6f} {urdf_tvec[2]:.6f}" rpy="{urdf_rpy[0]:.6f} {urdf_rpy[1]:.6f} {urdf_rpy[2]:.6f}" />\n'
-        display_text += "</joint>"
-
-        self.calibration_result_display.setPlainText(display_text)
-
-    def update_transform_chain(self):
-        """Update the transformation chain display."""
-        target_frame = self.target_frame_combo.currentText()
-        if not target_frame:
+        if T_orig_src_to_new_src is None or T_orig_tgt_to_new_tgt is None:
+            self.final_transform_display.setPlainText(
+                "Error: Cannot find path from original frames in TF tree."
+            )
             return
 
-        # Find path from LiDAR to target frame (going through the camera optical frame)
-        lidar_to_target_path = self.find_transformation_path_frames(self.lidar_frame, target_frame)
+        T_new_src_to_orig_src = np.linalg.inv(T_orig_src_to_new_src)
+        final_transform = T_new_src_to_orig_src @ self.calibrated_transform @ T_orig_tgt_to_new_tgt
+        self.display_transform_urdf(
+            self.final_transform_display, final_transform, new_source, new_target
+        )
+        self.current_final_transform = final_transform
 
-        if lidar_to_target_path and len(lidar_to_target_path) > 1:
-            chain_text = " → ".join(lidar_to_target_path)
-            self.chain_display.setPlainText(f"Chain: {chain_text}")
+    def display_transform_urdf(
+        self, text_widget: QTextEdit, transform: np.ndarray, parent: str, child: str
+    ):
+        from . import tf_transformations as tf
 
-            if target_frame == self.camera_frame:
-                # Direct calibrated transform - need inverse for URDF (parent → child)
-                # calibrated_transform is T_camera_lidar, but URDF needs T_lidar_camera
-                urdf_transform = np.linalg.inv(self.calibrated_transform)
-                self.display_final_transform(urdf_transform, target_frame)
-            else:
-                # Calculate transform: LiDAR → Target for URDF (parent → child)
-                # calibrated_transform is T_camera_lidar, need T_lidar_camera first
-                # Then: T_lidar_target = T_lidar_camera × T_camera_target
-
-                # First get the inverse of calibrated transform (T_lidar_camera)
-                lidar_to_camera = np.linalg.inv(self.calibrated_transform)
-
-                # Then get Camera Optical → Target from TF tree
-                camera_to_target = self.find_transform_path(self.camera_frame, target_frame)
-                if camera_to_target is not None:
-                    # Final transform: LiDAR → Target = T_lidar_camera × T_camera_target
-                    final_transform = np.dot(lidar_to_camera, camera_to_target)
-                    self.display_final_transform(final_transform, target_frame)
-                else:
-                    self.final_transform_display.setPlainText("No transform path found.")
-        else:
-            self.chain_display.setPlainText(f"Direct: {target_frame}")
-            # For direct transforms, still need to invert for URDF
-            urdf_transform = np.linalg.inv(self.calibrated_transform)
-            self.display_final_transform(urdf_transform, target_frame)
-
-        # Update embedded graph
-        self.update_embedded_graph()
-
-    def update_embedded_graph(self):
-        """Update the embedded graph visualization."""
-        target_frame = self.target_frame_combo.currentText()
-        if not target_frame or not self.tf_tree:
-            # Show placeholder text
-            self.show_graph_placeholder()
+        if parent == child:
+            text_widget.setPlainText("Source and target frames cannot be the same.")
             return
+        matrix_str = "\n".join(["  ".join([f"{val:8.4f}" for val in row]) for row in transform])
+        xyz = tf.translation_from_matrix(transform)
+        rpy = tf.euler_from_matrix(transform)
+        joint_name = f"joint_{parent.replace('/', '_')}_to_{child.replace('/', '_')}"
+        urdf = f'<joint name="{joint_name}" type="fixed">\n  <parent link="{parent}" />\n  <child link="{child}" />\n  <origin xyz="{" ".join(map(str, xyz))}" rpy="{" ".join(map(str, rpy))}" />\n</joint>'
+        text_widget.setPlainText(
+            f"Transform: {parent} → {child}\nMatrix:\n{matrix_str}\n\nURDF Snippet:\n{urdf}"
+        )
 
+    def update_embedded_graph(self, source_frame: str, target_frame: str):
+        self.init_graph_placeholder()
+        if not self.tf_tree:
+            return
         try:
-            # Create embedded TF graph
-            self.create_embedded_tf_graph(target_frame)
+            path_frames = self.find_transformation_path_frames(source_frame, target_frame)
+            graph_widget = TFGraphWidget(self.tf_tree, source_frame, target_frame, path_frames)
+            self.graph_container.layout().addWidget(graph_widget)
         except Exception as e:
-            print(f"[DEBUG] Error creating embedded graph: {e}")
-            self.show_graph_placeholder()
-
-    def show_graph_placeholder(self):
-        """Show placeholder text in graph container."""
-        self.clear_graph_container()
-
-        layout = QVBoxLayout(self.graph_container)
-        placeholder = QLabel("TF Graph will appear here when data is available")
-        placeholder.setAlignment(Qt.AlignCenter)
-        placeholder.setStyleSheet("color: gray; font-style: italic;")
-        layout.addWidget(placeholder)
-
-    def clear_graph_container(self):
-        """Safely clear the graph container by recreating it."""
-        # Store parent and properties
-        parent = self.graph_container.parent()
-        min_height = self.graph_container.minimumHeight()
-        max_height = self.graph_container.maximumHeight()
-        style_sheet = self.graph_container.styleSheet()
-
-        # Remove old container from parent layout
-        if parent and parent.layout():
-            parent.layout().removeWidget(self.graph_container)
-
-        # Delete old container
-        self.graph_container.deleteLater()
-
-        # Create new container
-        self.graph_container = QWidget()
-        self.graph_container.setMinimumHeight(min_height)
-        self.graph_container.setMaximumHeight(max_height)
-        self.graph_container.setStyleSheet(style_sheet)
-
-        # Add back to parent layout
-        if parent and parent.layout():
-            # Find the position where the graph container should be (after chain display)
-            layout = parent.layout()
-            for i in range(layout.count()):
-                if layout.itemAt(i).widget() == self.chain_display:
-                    layout.insertWidget(i + 1, self.graph_container)
-                    break
-            else:
-                # Fallback: add at end
-                layout.addWidget(self.graph_container)
-
-    def create_embedded_tf_graph(self, target_frame):
-        """Create an embedded TF graph widget."""
-        # Find all frames in the path from lidar to target
-        lidar_to_target_path = self.find_transformation_path_frames(self.lidar_frame, target_frame)
-
-        if not lidar_to_target_path:
-            self.show_graph_placeholder()
-            return
-
-        # Filter TF tree to only include relevant transforms
-        all_frames = set(lidar_to_target_path)
-        filtered_tf_tree = {}
-        for parent_frame, children in self.tf_tree.items():
-            if parent_frame in all_frames:
-                filtered_children = {
-                    child: data for child, data in children.items() if child in all_frames
-                }
-                if filtered_children:
-                    filtered_tf_tree[parent_frame] = filtered_children
-
-        if filtered_tf_tree:
-            try:
-                from .transformation_widget import TFGraphWidget
-
-                # Clear existing graph safely
-                self.clear_graph_container()
-
-                # Create new layout and graph
-                layout = QVBoxLayout(self.graph_container)
-
-                # Create a mini version of the TF graph
-                graph_widget = TFGraphWidget(
-                    filtered_tf_tree, self.lidar_frame, target_frame, lidar_to_target_path
-                )
-
-                # Get the graph widget and add it directly
-                graph_qt_widget = graph_widget.graph.widget
-                graph_qt_widget.setMaximumHeight(250)
-                graph_qt_widget.setParent(self.graph_container)
-                layout.addWidget(graph_qt_widget)
-
-            except Exception as e:
-                print(f"[DEBUG] Error creating TF graph widget: {e}")
-                self.show_graph_placeholder()
-        else:
-            self.show_graph_placeholder()
-
-    def display_final_transform(self, transform, target_frame):
-        """Display the final transform for URDF integration."""
-        display_text = f"{self.lidar_frame} → {target_frame}:\n"
-        for i in range(4):
-            row_text = "  ".join(f"{transform[i, j]:8.4f}" for j in range(4))
-            display_text += f"[{row_text}]\n"
-
-        # Add translation and rotation info
-        from scipy.spatial.transform import Rotation
-
-        tvec = transform[:3, 3]
-        rpy = Rotation.from_matrix(transform[:3, :3]).as_euler("xyz", degrees=False)
-
-        display_text += f"\nXYZ: [{tvec[0]:.6f}, {tvec[1]:.6f}, {tvec[2]:.6f}]"
-        display_text += f"\nRPY: [{rpy[0]:.6f}, {rpy[1]:.6f}, {rpy[2]:.6f}]"
-
-        # Add URDF snippet - use original frame names for joint name
-        joint_name = f"{self.lidar_frame}_2_{target_frame}_calibrated"
-        display_text += "\n\nURDF Joint:\n"
-        display_text += f'<joint name="{joint_name}" type="fixed">\n'
-        display_text += f'  <parent link="{self.lidar_frame}" />\n'
-        display_text += f'  <child link="{target_frame}" />\n'
-        display_text += f'  <origin xyz="{tvec[0]:.6f} {tvec[1]:.6f} {tvec[2]:.6f}" rpy="{rpy[0]:.6f} {rpy[1]:.6f} {rpy[2]:.6f}" />\n'
-        display_text += "</joint>"
-
-        self.final_transform_display.setPlainText(display_text)
-        self.current_final_transform = transform
+            print(f"[ERROR] Failed to create or embed TF graph: {e}")
 
     def export_calibration_result(self):
-        """Export the complete calibration results including both text boxes."""
-        from PySide6.QtWidgets import QFileDialog
-
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "Save Calibration Results", "", "Text Files (*.txt)"
+            self, "Save Target Transform", "", "Text Files (*.txt);;All Files (*)"
         )
         if file_path:
             with open(file_path, "w") as f:
-                f.write("# LiDAR-Camera Extrinsic Calibration Results\n")
-                f.write("# Generated by ros2_calib\n\n")
-
-                f.write("=" * 60 + "\n")
-                f.write("CALIBRATION RESULTS\n")
-                f.write("=" * 60 + "\n\n")
-                f.write(self.calibration_result_display.toPlainText())
-                f.write("\n\n")
-
-                f.write("=" * 60 + "\n")
-                f.write("TARGET TRANSFORM\n")
-                f.write("=" * 60 + "\n\n")
                 f.write(self.final_transform_display.toPlainText())
-                f.write("\n")
-            print(f"Calibration results saved to {file_path}")
 
     def dragEnterEvent(self, event: QDragEnterEvent):
-        """Handle drag enter event for the main window."""
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
-        else:
-            event.ignore()
 
     def dropEvent(self, event: QDropEvent):
-        """Handle drop event for the main window."""
-        urls = event.mimeData().urls()
-        if urls:
-            file_path = urls[0].toLocalFile()
-            self.process_dropped_path(file_path)
+        if event.mimeData().hasUrls():
+            self.process_dropped_path(event.mimeData().urls()[0].toLocalFile())
             event.acceptProposedAction()

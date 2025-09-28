@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from typing import List
 
 import numpy as np
+from scipy.spatial.transform import Rotation
 
 from . import tf_transformations as transformations
 
@@ -232,61 +233,48 @@ def image_to_numpy(msg):
 
 
 # Mock ROS2 geometry message types
-@dataclass
 class Vector3:
-    x: float = 0.0
-    y: float = 0.0
-    z: float = 0.0
+    def __init__(self, x=0.0, y=0.0, z=0.0):
+        self.x, self.y, self.z = x, y, z
 
 
-@dataclass
-class Point:
-    x: float = 0.0
-    y: float = 0.0
-    z: float = 0.0
-
-
-@dataclass
 class Quaternion:
-    x: float = 0.0
-    y: float = 0.0
-    z: float = 0.0
-    w: float = 1.0
+    def __init__(self, x=0.0, y=0.0, z=0.0, w=1.0):
+        self.x, self.y, self.z, self.w = x, y, z, w
 
 
-@dataclass
+class Point:
+    def __init__(self, x=0.0, y=0.0, z=0.0):
+        self.x, self.y, self.z = x, y, z
+
+
 class Transform:
-    translation: Vector3 = field(default_factory=Vector3)
-    rotation: Quaternion = field(default_factory=Quaternion)
+    def __init__(self, translation=None, rotation=None):
+        self.translation = translation if translation is not None else Vector3()
+        self.rotation = rotation if rotation is not None else Quaternion()
 
 
-@dataclass
-class Pose:
-    position: Point = field(default_factory=Point)
-    orientation: Quaternion = field(default_factory=Quaternion)
-
-
-@dataclass
 class TransformStamped:
-    header: Header = field(default_factory=Header)
-    child_frame_id: str = ""
-    transform: Transform = field(default_factory=Transform)
+    def __init__(self, header=None, child_frame_id="", transform=None):
+        self.header = header if header is not None else Header()
+        self.child_frame_id = child_frame_id
+        self.transform = transform if transform is not None else Transform()
 
 
-@dataclass
 class TFMessage:
-    transforms: List[TransformStamped] = field(default_factory=list)
+    def __init__(self, transforms=None):
+        self.transforms = transforms if transforms is not None else []
 
 
 # Transformation conversion utilities (adapted from ros2_numpy)
 def numpify(msg):
     """Convert a ROS message to numpy array."""
     if isinstance(msg, Vector3):
-        return np.array([msg.x, msg.y, msg.z])
+        return np.array([msg.x, msg.y, msg.z], dtype=np.float64)
     elif isinstance(msg, Point):
-        return np.array([msg.x, msg.y, msg.z])
+        return np.array([msg.x, msg.y, msg.z], dtype=np.float64)
     elif isinstance(msg, Quaternion):
-        return np.array([msg.x, msg.y, msg.z, msg.w])
+        return np.array([msg.x, msg.y, msg.z, msg.w], dtype=np.float64)
     else:
         return msg
 
@@ -309,12 +297,26 @@ def quat_to_numpy(msg):
     return np.array([msg.x, msg.y, msg.z, msg.w])
 
 
-def transform_to_numpy(msg):
-    """Convert Transform message to 4x4 homogeneous transformation matrix."""
-    return np.dot(
-        transformations.translation_matrix(numpify(msg.translation)),
-        transformations.quaternion_matrix(numpify(msg.rotation)),
+def transform_to_numpy(transform: Transform) -> np.ndarray:
+    """
+    Converts a ROS Transform message to a 4x4 NumPy transformation matrix.
+    """
+    translation = np.array(
+        [transform.translation.x, transform.translation.y, transform.translation.z],
+        dtype=np.float64,
     )
+
+    rotation = Rotation.from_quat(
+        [transform.rotation.x, transform.rotation.y, transform.rotation.z, transform.rotation.w]
+    )
+
+    # Create an identity matrix with the correct data type
+    transform_matrix = np.identity(4, dtype=np.float64)
+
+    transform_matrix[:3, :3] = rotation.as_matrix()
+    transform_matrix[:3, 3] = translation
+
+    return transform_matrix
 
 
 def numpy_to_transform(arr):
