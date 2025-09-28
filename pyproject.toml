@@ -1,6 +1,6 @@
 [project]
 name = "ros2-calib"
-version = "0.0.6"
+version = "0.1.1"
 description = "A manual LiDAR-Camera calibration tool for ROS 2"
 readme = "README.md"
 license = "MIT"
