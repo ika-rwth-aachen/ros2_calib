@@ -248,10 +248,20 @@ If you use this tool in your research, please cite:
 
 ```bibtex
 @software{ros2_calib,
-  title={ros2\_calib: Multi-Sensor Calibration Tool for ROS 2},
+  title={ros2\_calib: A Multi-Sensor Calibration Tool for ROS2},
   author={Till Beemelmanns},
   year={2025},
-  url={https://github.com/ika-rwth-aachen/ros2_calib}
+  url={https://github.com/ika-rwth-aachen/ros2_calib},
+  publisher={Zenodo},
+  doi={10.5281/zenodo.17119720},
+  url={https://doi.org/10.5281/zenodo.17119720},
+  swhid={swh:1:dir:0ac40351ccecf475772e49b7578fde53d224f6c4
+         ;origin=https://doi.org/10.5281/zenodo.17119720;vi
+         sit=swh:1:snp:98106a33aaa26f183d05dce909dc2da8c53b
+         dab7;anchor=swh:1:rel:519b58ff48f20a36f6c36d6b3d06
+         4bf1e7418432;path=ika-rwth-aachen-
+         ros2\_calib-6fb095d
+         },
 }
 ```
 
