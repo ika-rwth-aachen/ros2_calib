@@ -201,8 +201,14 @@ class FrameSelectionWidget(QWidget):
         image_label.setStyleSheet("border: 2px solid #666; background-color: #333;")
         layout.addWidget(image_label)
 
+        delta_ns = frame_data.get("time_delta_ns")
+        delta_text = ""
+        if delta_ns is not None:
+            delta_ms = delta_ns / 1e6
+            delta_text = f" (Δt: {delta_ms:.2f} ms)"
+
         # Frame info
-        info_label = QLabel(f"Frame {index + 1}")
+        info_label = QLabel(f"Frame {index + 1}{delta_text}")
         info_label.setAlignment(Qt.AlignCenter)
         info_label.setStyleSheet("color: white; font-weight: bold; padding: 5px;")
         layout.addWidget(info_label)
