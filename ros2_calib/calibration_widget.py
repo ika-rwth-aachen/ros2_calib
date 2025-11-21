@@ -141,7 +141,7 @@ class CalibrationWidget(QWidget):
         self.euler_convention = "xyz"
         self.euler_convention_options = [
             "xyz",  # roll–pitch–yaw / Tait–Bryan
-            "zxy",  # alternative to avoid gimbal lock near pitch
+            "zxy",  # alternative to avoid gimbal lock when pitch ≈ ±90°
             "zyz",  # proper Euler angles
         ]
 
