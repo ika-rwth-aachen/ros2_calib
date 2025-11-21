@@ -95,6 +95,7 @@ Your rosbag file (`.mcap` format, tested with Jazzy and Humble) should contain t
 
 Furthermore, the metadata file (**metadata.yaml**) must be present in the same
 directory as the `.mcap` file (usually automatically created by ROS 2 when recording).
+Topics can be named differently; the tool allows you to select the correct topics during setup.
 
 ### Install from PyPI
 
