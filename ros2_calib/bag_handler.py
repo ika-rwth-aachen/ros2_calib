@@ -83,7 +83,6 @@ def combine_tf_static_messages(tf_messages: List[Any]) -> Optional[Any]:
     return base_message
 
 
-# --- CORRECTED ROBUST STREAMING SYNCHRONIZATION LOGIC ---
 def read_synchronized_messages_streaming(
     bag_file: str,
     topics_to_read: Dict[str, str],
@@ -115,7 +114,6 @@ def read_synchronized_messages_streaming(
     typestore = get_typestore(ros_store)
 
     with AnyReader([Path(bag_file).parent], default_typestore=typestore) as reader:
-        # *** FIX: Find connections by comparing normalized topic names ***
         conn1, conn2 = None, None
         for c in reader.connections:
             normalized_conn_topic = c.topic.lstrip("/")
@@ -124,7 +122,6 @@ def read_synchronized_messages_streaming(
             elif normalized_conn_topic == topic2_norm:
                 conn2 = c
 
-        # *** FIX: Provide a much more informative error message ***
         if not conn1 or not conn2:
             available_pc_topics = [
                 c.topic for c in reader.connections if "PointCloud2" in c.msgtype
@@ -192,6 +189,159 @@ def read_synchronized_messages_streaming(
         final_messages[list(tf_topics)[0]] = combine_tf_static_messages(tf_messages)
 
     return final_messages
+
+
+def read_synchronized_image_cloud(
+    bag_file: str,
+    image_topic: str,
+    pointcloud_topic: str,
+    camerainfo_topic: str,
+    topics_to_read: Dict[str, str],
+    progress_callback: Optional[Signal] = None,
+    max_time_diff: float = 0.05,
+    frame_samples: int = 6,
+    ros_version: str = "JAZZY",
+) -> Dict:
+    """Synchronize image, point cloud, and camera info by nearest timestamp."""
+    ros_store = getattr(Stores, f"ROS2_{ros_version}")
+    typestore = get_typestore(ros_store)
+
+    img_norm = image_topic.lstrip("/")
+    pc_norm = pointcloud_topic.lstrip("/")
+    cam_norm = camerainfo_topic.lstrip("/")
+    max_diff_ns = int(max_time_diff * 1e9)
+
+    def next_msg(it):
+        try:
+            return next(it)
+        except StopIteration:
+            return None
+
+    with AnyReader([Path(bag_file).parent], default_typestore=typestore) as reader:
+        img_conn = pc_conn = cam_conn = None
+        tf_connections = []
+        for c in reader.connections:
+            norm_topic = c.topic.lstrip("/")
+            if norm_topic == img_norm:
+                img_conn = c
+            elif norm_topic == pc_norm:
+                pc_conn = c
+            elif norm_topic == cam_norm:
+                cam_conn = c
+            elif "tf_static" in c.topic:
+                tf_connections.append(c)
+
+        if not img_conn or not pc_conn or not cam_conn:
+            missing = [
+                name
+                for name, conn in zip(
+                    ["image", "pointcloud", "camera_info"], [img_conn, pc_conn, cam_conn]
+                )
+                if conn is None
+            ]
+            raise ValueError(f"Missing connections for: {', '.join(missing)}")
+
+        img_iter = reader.messages(connections=[img_conn])
+        pc_iter = reader.messages(connections=[pc_conn])
+        cam_iter = reader.messages(connections=[cam_conn])
+
+        img_state = next_msg(img_iter)
+        pc_state = next_msg(pc_iter)
+        cam_prev = None
+        cam_state = next_msg(cam_iter)
+
+        def closest_camera_info(target_time_ns):
+            nonlocal cam_prev, cam_state
+            while cam_state and cam_state[1] < target_time_ns:
+                cam_prev = cam_state
+                cam_state = next_msg(cam_iter)
+
+            candidates = []
+            if cam_prev:
+                candidates.append(cam_prev)
+            if cam_state:
+                candidates.append(cam_state)
+            if not candidates:
+                return None, None, None
+
+            best = min(candidates, key=lambda c: abs(c[1] - target_time_ns))
+            return best[2], abs(best[1] - target_time_ns), best[1]
+
+        pairs = []
+        if progress_callback:
+            progress_callback.emit(10, "Synchronizing image and point cloud...")
+
+        while img_state and pc_state and len(pairs) < frame_samples:
+            _, t_img, raw_img = img_state
+            _, t_pc, raw_pc = pc_state
+            diff = abs(t_img - t_pc)
+
+            if diff <= max_diff_ns:
+                img_msg = reader.deserialize(raw_img, img_conn.msgtype)
+                pc_msg = reader.deserialize(raw_pc, pc_conn.msgtype)
+                cam_raw, cam_diff, cam_time = closest_camera_info(t_img)
+                if cam_raw is None:
+                    break
+                cam_msg = reader.deserialize(cam_raw, cam_conn.msgtype)
+
+                pairs.append(
+                    {
+                        "image": {
+                            "timestamp": t_img,
+                            "data": img_msg,
+                            "topic_type": topics_to_read[image_topic],
+                            "time_delta_ns": diff,
+                        },
+                        "pointcloud": {
+                            "timestamp": t_pc,
+                            "data": pc_msg,
+                            "topic_type": topics_to_read[pointcloud_topic],
+                            "time_delta_ns": diff,
+                        },
+                        "camera_info": {
+                            "timestamp": cam_time if cam_time is not None else t_img,
+                            "data": cam_msg,
+                            "topic_type": topics_to_read[camerainfo_topic],
+                            "time_delta_ns": cam_diff,
+                        },
+                    }
+                )
+
+                img_state = next_msg(img_iter)
+                pc_state = next_msg(pc_iter)
+            elif t_img < t_pc:
+                img_state = next_msg(img_iter)
+            else:
+                pc_state = next_msg(pc_iter)
+
+        if not pairs:
+            raise ValueError(
+                f"No synchronized image/point cloud pairs within {max_time_diff}s window."
+            )
+
+        frame_samples_dict = {
+            image_topic: [p["image"] for p in pairs],
+            pointcloud_topic: [p["pointcloud"] for p in pairs],
+            camerainfo_topic: [p["camera_info"] for p in pairs],
+        }
+
+        messages = {"frame_samples": frame_samples_dict}
+
+        if tf_connections:
+            tf_messages = [
+                reader.deserialize(raw, tf_connections[0].msgtype)
+                for _, _, raw in reader.messages(connections=tf_connections)
+            ]
+            if tf_messages:
+                messages[tf_connections[0].topic] = combine_tf_static_messages(tf_messages)
+
+        if progress_callback:
+            best_diff_ms = min(p["image"]["time_delta_ns"] for p in pairs) / 1e6
+            progress_callback.emit(
+                85, f"Found {len(pairs)} synchronized pairs (best Δt {best_diff_ms:.2f} ms)."
+            )
+
+    return messages
 
 
 def read_all_messages_optimized(
@@ -348,14 +498,19 @@ class RosbagProcessingWorker(QThread):
                     ros_version=self.ros_version,
                 )
             else:
-                raw_messages = read_all_messages_optimized(
+                image_topic = self.selected_topics_data["image_topic"]
+                pointcloud_topic = self.selected_topics_data["pointcloud_topic"]
+                camerainfo_topic = self.selected_topics_data["camerainfo_topic"]
+                raw_messages = read_synchronized_image_cloud(
                     self.bag_file,
+                    image_topic,
+                    pointcloud_topic,
+                    camerainfo_topic,
                     self.topics_to_read,
                     self.progress_updated,
-                    self.total_messages,
-                    self.frame_samples,
-                    self.topic_message_counts,
-                    self.ros_version,
+                    max_time_diff=self.sync_tolerance,
+                    frame_samples=self.frame_samples,
+                    ros_version=self.ros_version,
                 )
 
             self.progress_updated.emit(95, "Finalizing data...")

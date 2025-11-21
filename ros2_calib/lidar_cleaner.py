@@ -146,7 +146,7 @@ class LiDARCleaner:
         return querydepth.reshape(qx.shape)
 
     def backprj_prj_np(self, intrinsic, pure_translation, enumlocation, depthinterp):
-        intrinsic44 = self.pad_intrinsic44(intrinsic)  # CORRECTED
+        intrinsic44 = self.pad_intrinsic44(intrinsic)
         pure_translation44 = self.pad_pose44(pure_translation)
 
         prjM = intrinsic44 @ pure_translation44 @ np.linalg.inv(intrinsic44)
