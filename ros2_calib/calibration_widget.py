@@ -137,6 +137,14 @@ class CalibrationWidget(QWidget):
         self.occlusion_mask = None
         self.second_occlusion_mask = None
 
+        # Euler convention used for manual tuning of rotations
+        self.euler_convention = "xyz"
+        self.euler_convention_options = [
+            "xyz",  # roll–pitch–yaw / Tait–Bryan
+            "zxy",  # alternative to avoid gimbal lock when pitch ≈ ±90°
+            "zyz",  # classic Euler angles (same-axis convention)
+        ]
+
         # Image rectification state
         self.original_cv_image = None
         self.is_rectification_enabled = False
@@ -359,6 +367,11 @@ class CalibrationWidget(QWidget):
         self.t_step_spinbox.setSuffix(" cm")
         self.t_step_spinbox.setButtonSymbols(QDoubleSpinBox.NoButtons)
         self.t_step_spinbox.valueChanged.connect(self._on_step_size_changed)
+        self.euler_convention_combo = QComboBox()
+        self.euler_convention_combo.addItems(self.euler_convention_options)
+        self.euler_convention_combo.setCurrentText(self.euler_convention)
+        self.euler_convention_combo.currentTextChanged.connect(self.on_euler_convention_changed)
+
         tuning_layout.addWidget(QLabel("Pos Step:"), 0, 0, 1, 2)
         tuning_layout.addWidget(self.t_step_spinbox, 0, 2, 1, 1)
         self.r_step_spinbox = QDoubleSpinBox()
@@ -389,6 +402,11 @@ class CalibrationWidget(QWidget):
             tuning_layout.addWidget(minus_button, i + 2, 3)
             tuning_layout.addWidget(plus_button, i + 2, 4)
             self.dof_widgets[label] = spinbox
+
+        # Place Euler convention selector after the manual rotation inputs
+        euler_row = 8
+        tuning_layout.addWidget(QLabel("Euler Angle Convention:"), euler_row, 0, 1, 2)
+        tuning_layout.addWidget(self.euler_convention_combo, euler_row, 2, 1, 3)
         col2_layout.addWidget(tuning_group)
         col2_layout.addSpacing(20)
 
@@ -503,6 +521,11 @@ class CalibrationWidget(QWidget):
     def _on_step_size_confirmed(self):
         self.step_size_ok_button.setStyleSheet(self.default_button_style)
 
+    def on_euler_convention_changed(self, convention: str):
+        """Update UI spinboxes when a new Euler convention is selected."""
+        self.euler_convention = convention
+        self._update_inputs_from_extrinsics()
+
     def _update_calibrate_button_highlight(self):
         # Need at least 4 master LiDAR to camera correspondences for calibration
         # LiDAR-to-LiDAR correspondences are used to solve for the second LiDAR transform
@@ -553,7 +576,7 @@ class CalibrationWidget(QWidget):
         self.extrinsics = np.identity(4)
         self.extrinsics[:3, 3] = [x, y, z]
         self.extrinsics[:3, :3] = Rotation.from_euler(
-            "xyz", [roll, pitch, yaw], degrees=True
+            self.euler_convention, [roll, pitch, yaw], degrees=True
         ).as_matrix()
         self.redraw_points()
         self.update_results_display()
@@ -564,7 +587,9 @@ class CalibrationWidget(QWidget):
 
     def _update_inputs_from_extrinsics(self):
         tvec = self.extrinsics[:3, 3]
-        rpy = Rotation.from_matrix(self.extrinsics[:3, :3]).as_euler("xyz", degrees=True)
+        rpy = Rotation.from_matrix(self.extrinsics[:3, :3]).as_euler(
+            self.euler_convention, degrees=True
+        )
         self.dof_widgets["x"].setValue(tvec[0])
         self.dof_widgets["y"].setValue(tvec[1])
         self.dof_widgets["z"].setValue(tvec[2])
