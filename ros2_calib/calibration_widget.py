@@ -893,13 +893,17 @@ class CalibrationWidget(QWidget):
             display_text += coeffs_str + "]"
 
             # Add interpretation of common distortion models
-            if len(dist_coeffs) >= 4:
+            if self._is_fisheye_camera():
                 display_text += f"\nk1={dist_coeffs[0]:.6f}, k2={dist_coeffs[1]:.6f}"
-                display_text += f"\np1={dist_coeffs[2]:.6f}, p2={dist_coeffs[3]:.6f}"
-                if len(dist_coeffs) >= 5:
-                    display_text += f", k3={dist_coeffs[4]:.6f}"
-                if len(dist_coeffs) >= 8:
-                    display_text += f"\nk4={dist_coeffs[5]:.6f}, k5={dist_coeffs[6]:.6f}, k6={dist_coeffs[7]:.6f}"
+                display_text += f"\nk3={dist_coeffs[2]:.6f}, k4={dist_coeffs[3]:.6f}"
+            else:
+                if len(dist_coeffs) >= 4:
+                    display_text += f"\nk1={dist_coeffs[0]:.6f}, k2={dist_coeffs[1]:.6f}"
+                    display_text += f"\np1={dist_coeffs[2]:.6f}, p2={dist_coeffs[3]:.6f}"
+                    if len(dist_coeffs) >= 5:
+                        display_text += f", k3={dist_coeffs[4]:.6f}"
+                    if len(dist_coeffs) >= 8:
+                        display_text += f"\nk4={dist_coeffs[5]:.6f}, k5={dist_coeffs[6]:.6f}, k6={dist_coeffs[7]:.6f}"
         else:
             display_text += "\nDistortion Coeffs: None"
 
