@@ -1097,17 +1097,20 @@ class CalibrationWidget(QWidget):
         # Add master LiDAR to camera correspondences
         for p2d, corr_data in self.correspondences.items():
             p3d = corr_data["3d_mean"]
-            item_text = f"Cam ({p2d[0]:.1f}, {p2d[1]:.1f}) ↔ Master ({p3d[0]:.2f}, {p3d[1]:.2f}, {p3d[2]:.2f})"
+            # normalize key to a hashable type for storage in item data
+            p2d_key = tuple(p2d) if isinstance(p2d, (list, np.ndarray)) else p2d
+            item_text = f"Cam ({p2d_key[0]:.1f}, {p2d_key[1]:.1f}) ↔ Master ({p3d[0]:.2f}, {p3d[1]:.2f}, {p3d[2]:.2f})"
             item = QListWidgetItem(item_text)
-            item.setData(Qt.UserRole, ("master_cam", p2d))
+            item.setData(Qt.UserRole, ("master_cam", p2d_key))
             self.corr_list_widget.addItem(item)
 
         # Add LiDAR-to-LiDAR correspondences
         for second_3d, corr_data in self.lidar_to_lidar_correspondences.items():
             master_3d = corr_data["master_3d_mean"]
-            item_text = f"Second ({second_3d[0]:.2f}, {second_3d[1]:.2f}, {second_3d[2]:.2f}) ↔ Master ({master_3d[0]:.2f}, {master_3d[1]:.2f}, {master_3d[2]:.2f})"
+            second_key = tuple(second_3d) if isinstance(second_3d, (list, np.ndarray)) else second_3d
+            item_text = f"Second ({second_key[0]:.2f}, {second_key[1]:.2f}, {second_key[2]:.2f}) ↔ Master ({master_3d[0]:.2f}, {master_3d[1]:.2f}, {master_3d[2]:.2f})"
             item = QListWidgetItem(item_text)
-            item.setData(Qt.UserRole, ("lidar_lidar", second_3d))
+            item.setData(Qt.UserRole, ("lidar_lidar", second_key))
             self.corr_list_widget.addItem(item)
 
     def delete_correspondence(self):
@@ -1116,10 +1119,14 @@ class CalibrationWidget(QWidget):
             corr_data = current_item.data(Qt.UserRole)
             if corr_data[0] == "master_cam":
                 p2d_key = corr_data[1]
+                if isinstance(p2d_key, (list, np.ndarray)):
+                    p2d_key = tuple(p2d_key)
                 if p2d_key in self.correspondences:
                     del self.correspondences[p2d_key]
             elif corr_data[0] == "lidar_lidar":
                 second_3d_key = corr_data[1]
+                if isinstance(second_3d_key, (list, np.ndarray)):
+                    second_3d_key = tuple(second_3d_key)
                 if second_3d_key in self.lidar_to_lidar_correspondences:
                     del self.lidar_to_lidar_correspondences[second_3d_key]
             self.update_corr_list()
@@ -1138,6 +1145,8 @@ class CalibrationWidget(QWidget):
         if corr_data[0] == "master_cam":
             # Highlight master LiDAR to camera correspondence
             p2d_key = corr_data[1]
+            if isinstance(p2d_key, (list, np.ndarray)):
+                p2d_key = tuple(p2d_key)
             corr = self.correspondences.get(p2d_key)
             if not corr:
                 return
