@@ -209,13 +209,13 @@ class CalibrationWidget(QWidget):
         if len(dist_coeffs) > 4:
             return dist_coeffs[:4]
         elif len(dist_coeffs) < 4:
-            return np.pad(dist_coeffs, (0, 4 - len(dist_coeffs)), mode='constant')
+            return np.pad(dist_coeffs, (0, 4 - len(dist_coeffs)), mode="constant")
         return dist_coeffs
 
     def _is_fisheye_camera(self):
         """Check if camera uses fisheye or equidistant distortion model."""
         model = self.camerainfo_msg.distortion_model.lower()
-        return any(fisheye_type in model for fisheye_type in ('fisheye', 'equidistant'))
+        return any(fisheye_type in model for fisheye_type in ("fisheye", "equidistant"))
 
     def toggle_rectification(self, enabled):
         """Toggle image rectification on/off."""
@@ -230,7 +230,7 @@ class CalibrationWidget(QWidget):
         # Get camera matrix and distortion coefficients
         K = np.array(self.camerainfo_msg.k).reshape(3, 3)
         dist_coeffs = (
-            np.array(self.camerainfo_msg.d) if hasattr(self.camerainfo_msg,'d') else np.zeros(4)
+            np.array(self.camerainfo_msg.d) if hasattr(self.camerainfo_msg, "d") else np.zeros(7)
         )
 
         # Undistort the image
@@ -949,7 +949,7 @@ class CalibrationWidget(QWidget):
 
         K = np.array(self.camerainfo_msg.k).reshape(3, 3)
         dist_coeffs = (
-            np.array(self.camerainfo_msg.d) if hasattr(self.camerainfo_msg, 'd') else np.zeros(4)
+            np.array(self.camerainfo_msg.d) if hasattr(self.camerainfo_msg, "d") else np.zeros(7)
         )
         rvec, _ = cv2.Rodrigues(self.extrinsics[:3, :3])
         tvec = self.extrinsics[:3, 3]
@@ -1051,7 +1051,7 @@ class CalibrationWidget(QWidget):
         # Project using master LiDAR to camera transform
         K = np.array(self.camerainfo_msg.k).reshape(3, 3)
         dist_coeffs = (
-            np.array(self.camerainfo_msg.d) if hasattr(self.camerainfo_msg, 'd') else np.zeros(4)
+            np.array(self.camerainfo_msg.d) if hasattr(self.camerainfo_msg, "d") else np.zeros(7)
         )
         rvec, _ = cv2.Rodrigues(self.extrinsics[:3, :3])
         tvec = self.extrinsics[:3, 3]
@@ -1286,9 +1286,7 @@ class CalibrationWidget(QWidget):
             )
         else:
             dist_coeffs = (
-                np.array(self.camerainfo_msg.d)
-                if hasattr(self.camerainfo_msg, 'd')
-                else np.zeros(4)
+                np.array(self.camerainfo_msg.d) if hasattr(self.camerainfo_msg, "d") else np.zeros(7)
             )
 
             # Single LiDAR calibration

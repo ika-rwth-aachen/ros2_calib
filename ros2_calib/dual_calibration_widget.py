@@ -594,7 +594,7 @@ class DualCalibrationWidget(QWidget):
         # Project points
         K = np.array(self.camerainfo_msg.k).reshape(3, 3)
         dist_coeffs = (
-            np.array(self.camerainfo_msg.d) if hasattr(self.camerainfo_msg, "d") else np.zeros(4)
+            np.array(self.camerainfo_msg.d) if hasattr(self.camerainfo_msg, "d") else np.zeros(7)
         )
         rvec, _ = cv2.Rodrigues(self.master_extrinsics[:3, :3])
         tvec = self.master_extrinsics[:3, 3]
@@ -685,7 +685,7 @@ class DualCalibrationWidget(QWidget):
         # Project points using second LiDAR's transformation to camera
         K = np.array(self.camerainfo_msg.k).reshape(3, 3)
         dist_coeffs = (
-            np.array(self.camerainfo_msg.d) if hasattr(self.camerainfo_msg, "d") else np.zeros(4)
+            np.array(self.camerainfo_msg.d) if hasattr(self.camerainfo_msg, "d") else np.zeros(7)
         )
         rvec, _ = cv2.Rodrigues(self.second_extrinsics[:3, :3])
         tvec = self.second_extrinsics[:3, 3]
@@ -1442,9 +1442,7 @@ class DualCalibrationWidget(QWidget):
             lsq_method = self.lsq_method_combo.currentText()
             K = np.array(self.camerainfo_msg.k).reshape(3, 3)
             dist_coeffs = (
-                np.array(self.camerainfo_msg.d)
-                if hasattr(self.camerainfo_msg, 'd')
-                else np.zeros(4)
+                np.array(self.camerainfo_msg.d) if hasattr(self.camerainfo_msg, "d") else np.zeros(7)
             )
 
             # Prepare master LiDAR to camera correspondences
