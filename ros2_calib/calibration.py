@@ -26,17 +26,23 @@ from scipy.optimize import least_squares
 from scipy.spatial.transform import Rotation
 
 
-def objective_function(params, points_3d, points_2d, K):
+def objective_function(params, points_3d, points_2d, K, dist_coeffs, is_fisheye):
     rvec = params[:3]
     tvec = params[3:]
 
-    points_proj, _ = cv2.projectPoints(points_3d, rvec, tvec, K, None)
+    if is_fisheye and dist_coeffs is not None:
+        points_3d_proc = np.ascontiguousarray(points_3d).reshape(-1, 1, 3)
+        points_proj, _ = cv2.fisheye.projectPoints(points_3d_proc, rvec, tvec, K, dist_coeffs)
+    else:
+        points_proj, _ = cv2.projectPoints(points_3d, rvec, tvec, K, None)
+
     error = (points_proj.reshape(-1, 2) - points_2d).ravel()
     return error
 
 
 def calibrate(
-    correspondences, K, pnp_method=cv2.SOLVEPNP_ITERATIVE, lsq_method="lm", lsq_verbose=2
+    correspondences, K, pnp_method=cv2.SOLVEPNP_ITERATIVE, lsq_method="lm", lsq_verbose=2, 
+    dist_coeffs=None, is_fisheye=False
 ):
     print("---" + "-" * 10 + " Starting Calibration " + "-" * 10 + "---")
     if len(correspondences) < 4:
@@ -89,7 +95,7 @@ def calibrate(
     res = least_squares(
         objective_function,
         initial_params,
-        args=(points_3d, points_2d, K),
+        args=(points_3d, points_2d, K, dist_coeffs, is_fisheye),
         method=lsq_method,
         verbose=lsq_verbose,
     )
@@ -106,7 +112,8 @@ def calibrate(
     print("\n---" + "-" * 10 + " Calibration Finished " + "-" * 10 + "---")
     rpy = Rotation.from_matrix(R_opt).as_euler("xyz", degrees=True)
     print(f"Translation (x, y, z): {tvec_opt[0]:.4f}, {tvec_opt[1]:.4f}, {tvec_opt[2]:.4f}")
-    print(f"Rotation (roll, pitch, yaw): {rpy[0]:.4f}, {rpy[1]:.4f}, {rpy[2]:.4f}")
+    print(f"Rotation in degrees (roll, pitch, yaw): {rpy[0]:.4f}, {rpy[1]:.4f}, {rpy[2]:.4f}")
+    print(f"Rotation in radians (roll, pitch, yaw): {np.radians(rpy[0]):.4f}, {np.radians(rpy[1]):.4f}, {np.radians(rpy[2]):.4f}")
     print("Final Extrinsic Matrix:")
     print(extrinsics)
 
@@ -217,7 +224,7 @@ def solve_rigid_transform_3d(source_points, target_points):
 
 
 def global_dual_lidar_objective(
-    params, master_cam_correspondences, second_cam_correspondences, lidar_lidar_correspondences, K
+    params, master_cam_correspondences, second_cam_correspondences, lidar_lidar_correspondences, K,  dist_coeffs, is_fisheye
 ):
     """
     Global objective function for dual LiDAR calibration.
@@ -246,9 +253,12 @@ def global_dual_lidar_objective(
         master_points_3d = np.array([c[1] for c in master_cam_correspondences], dtype=np.float32)
         master_points_2d = np.array([c[0] for c in master_cam_correspondences], dtype=np.float32)
 
-        master_points_proj, _ = cv2.projectPoints(
-            master_points_3d, master_rvec, master_tvec, K, None
-        )
+        if is_fisheye and dist_coeffs is not None:
+            master_points_3d_proc = np.ascontiguousarray(master_points_3d).reshape(-1, 1, 3)
+            master_points_proj, _ = cv2.fisheye.projectPoints(master_points_3d_proc, master_rvec, master_tvec, K, dist_coeffs)
+        else:
+            master_points_proj, _ = cv2.projectPoints(master_points_3d, master_rvec, master_tvec, K, None)
+
         master_errors = (master_points_proj.reshape(-1, 2) - master_points_2d).ravel()
         errors.extend(master_errors)
 
@@ -257,9 +267,12 @@ def global_dual_lidar_objective(
         second_points_3d = np.array([c[1] for c in second_cam_correspondences], dtype=np.float32)
         second_points_2d = np.array([c[0] for c in second_cam_correspondences], dtype=np.float32)
 
-        second_points_proj, _ = cv2.projectPoints(
-            second_points_3d, second_rvec, second_tvec, K, None
-        )
+        if is_fisheye and dist_coeffs is not None:
+            second_points_3d_proc = np.ascontiguousarray(second_points_3d).reshape(-1, 1, 3)
+            second_points_proj, _ = cv2.fisheye.projectPoints(second_points_3d_proc, second_rvec, second_tvec, K, dist_coeffs)
+        else:
+            second_points_proj, _ = cv2.projectPoints(second_points_3d, second_rvec, second_tvec, K, None)
+
         second_errors = (second_points_proj.reshape(-1, 2) - second_points_2d).ravel()
         errors.extend(second_errors)
 
@@ -304,6 +317,8 @@ def calibrate_dual_lidar_global(
     initial_second_transform=None,
     lsq_method="lm",
     lsq_verbose=2,
+    dist_coeffs=None, 
+    is_fisheye=False
 ):
     """
     Global dual LiDAR calibration using simultaneous optimization.
@@ -367,6 +382,8 @@ def calibrate_dual_lidar_global(
             second_cam_correspondences,
             lidar_lidar_correspondences,
             K,
+            dist_coeffs,
+            is_fisheye
         ),
         method=lsq_method,
         verbose=lsq_verbose,

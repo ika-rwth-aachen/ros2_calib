@@ -547,6 +547,19 @@ class DualCalibrationWidget(QWidget):
 
         self.intrinsics_display.setPlainText(display_text)
 
+    def _ensure_fisheye_dist_coeffs(self, dist_coeffs):
+        """Ensure distortion coefficients match fisheye model requirement (exactly 4 coeffs)."""
+        if len(dist_coeffs) > 4:
+            return dist_coeffs[:4].astype(np.float32)
+        elif len(dist_coeffs) < 4:
+            return np.pad(dist_coeffs, (0, 4 - len(dist_coeffs)), mode='constant').astype(np.float32)
+        return dist_coeffs.astype(np.float32)
+
+    def _is_fisheye_camera(self):
+        """Check if camera uses fisheye or equidistant distortion model."""
+        model = self.camerainfo_msg.distortion_model.lower()
+        return any(fisheye_type in model for fisheye_type in ('fisheye', 'equidistant'))
+
     def project_master_pointcloud(self, re_read_cloud=True):
         """Project master point cloud to image."""
         if not self.master_visible:
@@ -578,9 +591,17 @@ class DualCalibrationWidget(QWidget):
 
         # Project points
         K = np.array(self.camerainfo_msg.k).reshape(3, 3)
+        dist_coeffs = np.array(self.camerainfo_msg.d) if hasattr(self.camerainfo_msg, 'd') else np.zeros(4)
         rvec, _ = cv2.Rodrigues(self.master_extrinsics[:3, :3])
         tvec = self.master_extrinsics[:3, 3]
-        points_proj_cv, _ = cv2.projectPoints(self.master_points_xyz, rvec, tvec, K, None)
+
+        # Detect if fisheye camera is used
+        if self._is_fisheye_camera():
+            dist_coeffs = self._ensure_fisheye_dist_coeffs(dist_coeffs)
+            master_points_xyz_proc = np.ascontiguousarray(self.master_points_xyz).reshape(-1, 1, 3)
+            points_proj_cv, _ = cv2.fisheye.projectPoints(master_points_xyz_proc, rvec, tvec, K, dist_coeffs)
+        else:
+            points_proj_cv, _ = cv2.projectPoints(self.master_points_xyz, rvec, tvec, K, None)
         points_proj_cv = points_proj_cv.reshape(-1, 2)
 
         # Filter visible points
@@ -657,9 +678,17 @@ class DualCalibrationWidget(QWidget):
 
         # Project points using second LiDAR's transformation to camera
         K = np.array(self.camerainfo_msg.k).reshape(3, 3)
+        dist_coeffs = np.array(self.camerainfo_msg.d) if hasattr(self.camerainfo_msg, 'd') else np.zeros(4)
         rvec, _ = cv2.Rodrigues(self.second_extrinsics[:3, :3])
         tvec = self.second_extrinsics[:3, 3]
-        points_proj_cv, _ = cv2.projectPoints(self.second_points_xyz, rvec, tvec, K, None)
+
+        # Detect if fisheye camera is used
+        if self._is_fisheye_camera():
+            dist_coeffs = self._ensure_fisheye_dist_coeffs(dist_coeffs)
+            second_points_xyz_proc = np.ascontiguousarray(self.second_points_xyz).reshape(-1, 1, 3)
+            points_proj_cv, _ = cv2.fisheye.projectPoints(second_points_xyz_proc, rvec, tvec, K, dist_coeffs)
+        else:
+            points_proj_cv, _ = cv2.projectPoints(self.second_points_xyz, rvec, tvec, K, None)
         points_proj_cv = points_proj_cv.reshape(-1, 2)
 
         # Filter visible points
@@ -1402,6 +1431,14 @@ class DualCalibrationWidget(QWidget):
         try:
             lsq_method = self.lsq_method_combo.currentText()
             K = np.array(self.camerainfo_msg.k).reshape(3, 3)
+        
+            if not hasattr(self.camerainfo_msg, 'distortion_model'):
+                raise ValueError("CameraInfo message lacks 'distortion_model' attribute.")
+        
+            # Check if fisheye model is used
+            is_fisheye = any(model in self.camerainfo_msg.distortion_model.lower() 
+                              for model in ('fisheye', 'equidistant'))
+            dist_coeffs = np.array(self.camerainfo_msg.d) if is_fisheye else None
 
             # Prepare master LiDAR to camera correspondences
             master_cam_corr = [
@@ -1427,6 +1464,8 @@ class DualCalibrationWidget(QWidget):
                     self.master_extrinsics,  # Use current transforms as initial guess
                     self.second_extrinsics,
                     lsq_method,
+                    dist_coeffs=dist_coeffs, 
+                    is_fisheye=is_fisheye
                 )
             )
 
