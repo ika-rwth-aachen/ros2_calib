@@ -40,9 +40,8 @@ def objective_function(params, points_3d, points_2d, K, dist_coeffs, is_fisheye)
     return error
 
 
-def calibrate(
-    correspondences, K, pnp_method=cv2.SOLVEPNP_ITERATIVE, lsq_method="lm", lsq_verbose=2, 
-    dist_coeffs=None, is_fisheye=False
+def calibrate(correspondences, K, pnp_method=cv2.SOLVEPNP_ITERATIVE, lsq_method="lm", lsq_verbose=2, 
+              dist_coeffs=None, is_fisheye=False,
 ):
     print("---" + "-" * 10 + " Starting Calibration " + "-" * 10 + "---")
     if len(correspondences) < 4:
@@ -113,7 +112,8 @@ def calibrate(
     rpy = Rotation.from_matrix(R_opt).as_euler("xyz", degrees=True)
     print(f"Translation (x, y, z): {tvec_opt[0]:.4f}, {tvec_opt[1]:.4f}, {tvec_opt[2]:.4f}")
     print(f"Rotation in degrees (roll, pitch, yaw): {rpy[0]:.4f}, {rpy[1]:.4f}, {rpy[2]:.4f}")
-    print(f"Rotation in radians (roll, pitch, yaw): {np.radians(rpy[0]):.4f}, {np.radians(rpy[1]):.4f}, {np.radians(rpy[2]):.4f}")
+    print(f"Rotation in radians (roll, pitch, yaw): \
+            {np.radians(rpy[0]):.4f}, {np.radians(rpy[1]):.4f}, {np.radians(rpy[2]):.4f}")
     print("Final Extrinsic Matrix:")
     print(extrinsics)
 
@@ -224,7 +224,8 @@ def solve_rigid_transform_3d(source_points, target_points):
 
 
 def global_dual_lidar_objective(
-    params, master_cam_correspondences, second_cam_correspondences, lidar_lidar_correspondences, K,  dist_coeffs, is_fisheye
+    params, master_cam_correspondences, second_cam_correspondences, lidar_lidar_correspondences, K, 
+    dist_coeffs, is_fisheye
 ):
     """
     Global objective function for dual LiDAR calibration.
@@ -255,9 +256,13 @@ def global_dual_lidar_objective(
 
         if is_fisheye and dist_coeffs is not None:
             master_points_3d_proc = np.ascontiguousarray(master_points_3d).reshape(-1, 1, 3)
-            master_points_proj, _ = cv2.fisheye.projectPoints(master_points_3d_proc, master_rvec, master_tvec, K, dist_coeffs)
+            master_points_proj, _ = cv2.fisheye.projectPoints(
+                master_points_3d_proc, master_rvec, master_tvec, K, dist_coeffs
+            )
         else:
-            master_points_proj, _ = cv2.projectPoints(master_points_3d, master_rvec, master_tvec, K, None)
+            master_points_proj, _ = cv2.projectPoints(
+                master_points_3d, master_rvec, master_tvec, K, None
+            )
 
         master_errors = (master_points_proj.reshape(-1, 2) - master_points_2d).ravel()
         errors.extend(master_errors)
@@ -269,9 +274,13 @@ def global_dual_lidar_objective(
 
         if is_fisheye and dist_coeffs is not None:
             second_points_3d_proc = np.ascontiguousarray(second_points_3d).reshape(-1, 1, 3)
-            second_points_proj, _ = cv2.fisheye.projectPoints(second_points_3d_proc, second_rvec, second_tvec, K, dist_coeffs)
+            second_points_proj, _ = cv2.fisheye.projectPoints(
+                second_points_3d_proc, second_rvec, second_tvec, K, dist_coeffs
+            )
         else:
-            second_points_proj, _ = cv2.projectPoints(second_points_3d, second_rvec, second_tvec, K, None)
+            second_points_proj, _ = cv2.projectPoints(
+                second_points_3d, second_rvec, second_tvec, K, None
+            )
 
         second_errors = (second_points_proj.reshape(-1, 2) - second_points_2d).ravel()
         errors.extend(second_errors)
@@ -317,8 +326,8 @@ def calibrate_dual_lidar_global(
     initial_second_transform=None,
     lsq_method="lm",
     lsq_verbose=2,
-    dist_coeffs=None, 
-    is_fisheye=False
+    dist_coeffs=None,
+    is_fisheye=False,
 ):
     """
     Global dual LiDAR calibration using simultaneous optimization.

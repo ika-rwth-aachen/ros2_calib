@@ -112,7 +112,7 @@ cd ros2_calib
 
 # Create a virtual environment
 python -m venv .venv
-source ./venv/bin/activate
+source .venv/bin/activate
 
 # Install in development mode
 python -m pip install .

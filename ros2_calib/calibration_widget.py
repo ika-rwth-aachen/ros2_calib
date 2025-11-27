@@ -229,7 +229,9 @@ class CalibrationWidget(QWidget):
 
         # Get camera matrix and distortion coefficients
         K = np.array(self.camerainfo_msg.k).reshape(3, 3)
-        dist_coeffs = np.array(self.camerainfo_msg.d) if hasattr(self.camerainfo_msg, 'd') else np.zeros(4)
+        dist_coeffs = (
+            np.array(self.camerainfo_msg.d) if hasattr(self.camerainfo_msg,'d') else np.zeros(4)
+        )
 
         # Undistort the image
         try:
@@ -239,7 +241,6 @@ class CalibrationWidget(QWidget):
                 rectified_image = cv2.fisheye.undistortImage(image, K, dist_coeffs, Knew=K)
             else:
                 # Use standard undistortion
-                
                 # Use cv2.undistort with the same camera matrix as newCameraMatrix
                 # This preserves the same image dimensions and focal length
                 rectified_image = cv2.undistort(image, K, dist_coeffs, None, K)
@@ -919,7 +920,13 @@ class CalibrationWidget(QWidget):
         if extrinsics is not None:
             self.extrinsics = extrinsics
         self.clear_all_highlighting()
-        if self.point_cloud_item is not None and self.point_cloud_item.scene():
+        try:
+            has_scene = (
+                self.point_cloud_item is not None and self.point_cloud_item.scene() is not None
+            )
+        except RuntimeError:
+            has_scene = False
+        if has_scene:
             self.scene.removeItem(self.point_cloud_item)
         self.point_cloud_item = None
 
@@ -941,14 +948,18 @@ class CalibrationWidget(QWidget):
             return
 
         K = np.array(self.camerainfo_msg.k).reshape(3, 3)
-        dist_coeffs = np.array(self.camerainfo_msg.d) if hasattr(self.camerainfo_msg, 'd') else np.zeros(4)
+        dist_coeffs = (
+            np.array(self.camerainfo_msg.d) if hasattr(self.camerainfo_msg, 'd') else np.zeros(4)
+        )
         rvec, _ = cv2.Rodrigues(self.extrinsics[:3, :3])
         tvec = self.extrinsics[:3, 3]
 
         if self._is_fisheye_camera():
             dist_coeffs = self._ensure_fisheye_dist_coeffs(dist_coeffs)
             points_xyz_proc = np.ascontiguousarray(self.points_xyz).reshape(-1, 1, 3)
-            points_proj_cv, _ = cv2.fisheye.projectPoints(points_xyz_proc, rvec, tvec, K, dist_coeffs)
+            points_proj_cv, _ = cv2.fisheye.projectPoints(
+                points_xyz_proc, rvec, tvec, K, dist_coeffs
+            )
         else:
             points_proj_cv, _ = cv2.projectPoints(self.points_xyz, rvec, tvec, K, None)
         
@@ -1008,7 +1019,14 @@ class CalibrationWidget(QWidget):
             self.second_lidar_transform = transform
 
         # Remove existing second point cloud
-        if self.second_point_cloud_item is not None and self.second_point_cloud_item.scene():
+        try:
+            has_scene = (
+                self.second_point_cloud_item is not None
+                and self.second_point_cloud_item.scene() is not None
+            )
+        except RuntimeError:
+            has_scene = False
+        if has_scene:
             self.scene.removeItem(self.second_point_cloud_item)
         self.second_point_cloud_item = None
 
@@ -1032,14 +1050,18 @@ class CalibrationWidget(QWidget):
 
         # Project using master LiDAR to camera transform
         K = np.array(self.camerainfo_msg.k).reshape(3, 3)
-        dist_coeffs = np.array(self.camerainfo_msg.d) if hasattr(self.camerainfo_msg, 'd') else np.zeros(4)
+        dist_coeffs = (
+            np.array(self.camerainfo_msg.d) if hasattr(self.camerainfo_msg, 'd') else np.zeros(4)
+        )
         rvec, _ = cv2.Rodrigues(self.extrinsics[:3, :3])
         tvec = self.extrinsics[:3, 3]
 
         if self._is_fisheye_camera():
             dist_coeffs = self._ensure_fisheye_dist_coeffs(dist_coeffs)
             transformed_points_proc = np.ascontiguousarray(transformed_points).reshape(-1, 1, 3)
-            points_proj_cv, _ = cv2.fisheye.projectPoints(transformed_points_proc, rvec, tvec, K, dist_coeffs)
+            points_proj_cv, _ = cv2.fisheye.projectPoints(
+                transformed_points_proc, rvec, tvec, K, dist_coeffs
+            )
         else:
             points_proj_cv, _ = cv2.projectPoints(transformed_points, rvec, tvec, K, None)
                 
@@ -1107,7 +1129,9 @@ class CalibrationWidget(QWidget):
         # Add LiDAR-to-LiDAR correspondences
         for second_3d, corr_data in self.lidar_to_lidar_correspondences.items():
             master_3d = corr_data["master_3d_mean"]
-            second_key = tuple(second_3d) if isinstance(second_3d, (list, np.ndarray)) else second_3d
+            second_key = (
+                tuple(second_3d) if isinstance(second_3d, (list, np.ndarray)) else second_3d
+            )
             item_text = f"Second ({second_key[0]:.2f}, {second_key[1]:.2f}, {second_key[2]:.2f}) ↔ Master ({master_3d[0]:.2f}, {master_3d[1]:.2f}, {master_3d[2]:.2f})"
             item = QListWidgetItem(item_text)
             item.setData(Qt.UserRole, ("lidar_lidar", second_key))
@@ -1261,12 +1285,18 @@ class CalibrationWidget(QWidget):
                 master_cam_corr, self.lidar_to_lidar_correspondences, K, pnp_flag, lsq_method
             )
         else:
-            dist_coeffs = np.array(self.camerainfo_msg.d) if hasattr(self.camerainfo_msg, 'd') else np.zeros(4)
+            dist_coeffs = (
+                np.array(self.camerainfo_msg.d)
+                if hasattr(self.camerainfo_msg, 'd')
+                else np.zeros(4)
+            )
 
             # Single LiDAR calibration
             calib_corr = [(p2d, corr["3d_mean"]) for p2d, corr in self.correspondences.items()]
             self.extrinsics = calibration.calibrate(calib_corr, K, pnp_flag, lsq_method, 
-                                                    dist_coeffs=self._ensure_fisheye_dist_coeffs(dist_coeffs), is_fisheye=self._is_fisheye_camera())
+                                                    dist_coeffs=self._ensure_fisheye_dist_coeffs(dist_coeffs), 
+                                                    is_fisheye=self._is_fisheye_camera()
+            )
 
         self.progress_bar.setVisible(False)
         self.project_pointcloud()
