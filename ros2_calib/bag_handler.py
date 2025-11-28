@@ -501,17 +501,29 @@ class RosbagProcessingWorker(QThread):
                 image_topic = self.selected_topics_data["image_topic"]
                 pointcloud_topic = self.selected_topics_data["pointcloud_topic"]
                 camerainfo_topic = self.selected_topics_data["camerainfo_topic"]
-                raw_messages = read_synchronized_image_cloud(
+                raw_messages = read_all_messages_optimized(
                     self.bag_file,
-                    image_topic,
-                    pointcloud_topic,
-                    camerainfo_topic,
                     self.topics_to_read,
                     self.progress_updated,
-                    max_time_diff=self.sync_tolerance,
-                    frame_samples=self.frame_samples,
-                    ros_version=self.ros_version,
+                    self.total_messages,
+                    self.frame_samples,
+                    self.topic_message_counts,
+                    self.ros_version,
                 )
+                ## \NOTE. 'read_synchronized_image_cloud' method should be revised, as it extracts the first N frames 
+                ## (lidar+camera) that are synchronized. However, the ideal approach would be to extract all synchronized 
+                ## frames and extract N equispaced frames from the dataset, where N is the number of frames selected.
+                # raw_messages = read_synchronized_image_cloud(
+                #     self.bag_file,
+                #     image_topic,
+                #     pointcloud_topic,
+                #     camerainfo_topic,
+                #     self.topics_to_read,
+                #     self.progress_updated,
+                #     max_time_diff=self.sync_tolerance,
+                #     frame_samples=self.frame_samples,
+                #     ros_version=self.ros_version,
+                # )
 
             self.progress_updated.emit(95, "Finalizing data...")
             topic_types = {name: type_str for name, type_str in self.topics_to_read.items()}

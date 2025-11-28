@@ -557,7 +557,7 @@ class DualCalibrationWidget(QWidget):
             )
         return dist_coeffs.astype(np.float32)
 
-    def _is_fisheye_camera(self)> :
+    def _is_fisheye_camera(self):
         """Check if camera uses fisheye or equidistant distortion model."""
         model = self.camerainfo_msg.distortion_model.lower()
         return any(fisheye_type in model for fisheye_type in ("fisheye", "equidistant"))
@@ -599,7 +599,6 @@ class DualCalibrationWidget(QWidget):
         rvec, _ = cv2.Rodrigues(self.master_extrinsics[:3, :3])
         tvec = self.master_extrinsics[:3, 3]
 
-        # Detect if fisheye camera is used
         if self._is_fisheye_camera():
             dist_coeffs = self._ensure_fisheye_dist_coeffs(dist_coeffs)
             master_points_xyz_proc = np.ascontiguousarray(self.master_points_xyz).reshape(-1, 1, 3)
@@ -690,7 +689,6 @@ class DualCalibrationWidget(QWidget):
         rvec, _ = cv2.Rodrigues(self.second_extrinsics[:3, :3])
         tvec = self.second_extrinsics[:3, 3]
 
-        # Detect if fisheye camera is used
         if self._is_fisheye_camera():
             dist_coeffs = self._ensure_fisheye_dist_coeffs(dist_coeffs)
             second_points_xyz_proc = np.ascontiguousarray(self.second_points_xyz).reshape(-1, 1, 3)
