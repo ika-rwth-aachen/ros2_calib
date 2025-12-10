@@ -60,7 +60,6 @@ def calibrate(correspondences, K, pnp_method=cv2.SOLVEPNP_ITERATIVE, lsq_method=
         try:
             if (is_fisheye and dist_coeffs is not None):
                 # Fisheye PnP with RANSAC is not directly supported in OpenCV
-                print("Fisheye model does not support solvePnPRansac without undistort. Skipping RANSAC.")
                 points_2d = cv2.fisheye.undistortPoints(
                     points_2d.reshape(-1,1,2), K, dist_coeffs
                 ).reshape(-1,2)
