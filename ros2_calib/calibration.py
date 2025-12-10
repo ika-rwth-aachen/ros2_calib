@@ -20,6 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import copy
 import cv2
 import numpy as np
 from scipy.optimize import least_squares
@@ -53,19 +54,29 @@ def calibrate(correspondences, K, pnp_method=cv2.SOLVEPNP_ITERATIVE, lsq_method=
 
     initial_params = np.zeros(6)
 
+    K_pnp = copy.deepcopy(K)
     if pnp_method is not None:
         print(f"Running RANSAC on {len(points_2d)} correspondences...")
         try:
+            if (is_fisheye and dist_coeffs is not None):
+                # Fisheye PnP with RANSAC is not directly supported in OpenCV
+                print("Fisheye model does not support solvePnPRansac without undistort. Skipping RANSAC.")
+                points_2d = cv2.fisheye.undistortPoints(
+                    points_2d.reshape(-1,1,2), K, dist_coeffs
+                ).reshape(-1,2)
+                K_pnp = np.eye(3)
+
             # Use solvePnPRansac to get a robust initial estimate and identify inliers
             success, rvec_ransac, tvec_ransac, inliers = cv2.solvePnPRansac(
                 points_3d,
                 points_2d,
-                K,
+                K_pnp,
                 None,
                 iterationsCount=100,
                 reprojectionError=8.0,
                 flags=pnp_method,
             )
+
             if not success:
                 print("RANSAC failed to find a solution.")
                 return np.identity(4)
