@@ -204,6 +204,19 @@ class CalibrationWidget(QWidget):
         threshold = 1e-6
         return np.any(np.abs(dist_coeffs) > threshold)
 
+    def _ensure_fisheye_dist_coeffs(self, dist_coeffs):
+        """Ensure distortion coefficients match fisheye model requirement (exactly 4 coeffs)."""
+        if len(dist_coeffs) > 4:
+            return dist_coeffs[:4]
+        elif len(dist_coeffs) < 4:
+            return np.pad(dist_coeffs, (0, 4 - len(dist_coeffs)), mode="constant")
+        return dist_coeffs
+
+    def _is_fisheye_camera(self):
+        """Check if camera uses fisheye or equidistant distortion model."""
+        model = self.camerainfo_msg.distortion_model.lower()
+        return any(fisheye_type in model for fisheye_type in ("fisheye", "equidistant"))
+
     def toggle_rectification(self, enabled):
         """Toggle image rectification on/off."""
         self.is_rectification_enabled = enabled
@@ -216,13 +229,21 @@ class CalibrationWidget(QWidget):
 
         # Get camera matrix and distortion coefficients
         K = np.array(self.camerainfo_msg.k).reshape(3, 3)
-        dist_coeffs = np.array(self.camerainfo_msg.d)
+        dist_coeffs = (
+            np.array(self.camerainfo_msg.d) if hasattr(self.camerainfo_msg, "d") else np.zeros(7)
+        )
 
         # Undistort the image
         try:
-            # Use cv2.undistort with the same camera matrix as newCameraMatrix
-            # This preserves the same image dimensions and focal length
-            rectified_image = cv2.undistort(image, K, dist_coeffs, None, K)
+            if self._is_fisheye_camera():
+                # Use fisheye undistortion
+                dist_coeffs = self._ensure_fisheye_dist_coeffs(dist_coeffs)
+                rectified_image = cv2.fisheye.undistortImage(image, K, dist_coeffs, Knew=K)
+            else:
+                # Use standard undistortion
+                # Use cv2.undistort with the same camera matrix as newCameraMatrix
+                # This preserves the same image dimensions and focal length
+                rectified_image = cv2.undistort(image, K, dist_coeffs, None, K)
             return rectified_image
         except Exception as e:
             print(f"[WARNING] Failed to rectify image: {e}")
@@ -873,13 +894,17 @@ class CalibrationWidget(QWidget):
             display_text += coeffs_str + "]"
 
             # Add interpretation of common distortion models
-            if len(dist_coeffs) >= 4:
+            if self._is_fisheye_camera():
                 display_text += f"\nk1={dist_coeffs[0]:.6f}, k2={dist_coeffs[1]:.6f}"
-                display_text += f"\np1={dist_coeffs[2]:.6f}, p2={dist_coeffs[3]:.6f}"
-                if len(dist_coeffs) >= 5:
-                    display_text += f", k3={dist_coeffs[4]:.6f}"
-                if len(dist_coeffs) >= 8:
-                    display_text += f"\nk4={dist_coeffs[5]:.6f}, k5={dist_coeffs[6]:.6f}, k6={dist_coeffs[7]:.6f}"
+                display_text += f"\nk3={dist_coeffs[2]:.6f}, k4={dist_coeffs[3]:.6f}"
+            else:
+                if len(dist_coeffs) >= 4:
+                    display_text += f"\nk1={dist_coeffs[0]:.6f}, k2={dist_coeffs[1]:.6f}"
+                    display_text += f"\np1={dist_coeffs[2]:.6f}, p2={dist_coeffs[3]:.6f}"
+                    if len(dist_coeffs) >= 5:
+                        display_text += f", k3={dist_coeffs[4]:.6f}"
+                    if len(dist_coeffs) >= 8:
+                        display_text += f"\nk4={dist_coeffs[5]:.6f}, k5={dist_coeffs[6]:.6f}, k6={dist_coeffs[7]:.6f}"
         else:
             display_text += "\nDistortion Coeffs: None"
 
@@ -895,7 +920,13 @@ class CalibrationWidget(QWidget):
         if extrinsics is not None:
             self.extrinsics = extrinsics
         self.clear_all_highlighting()
-        if self.point_cloud_item is not None and self.point_cloud_item.scene():
+        try:
+            has_scene = (
+                self.point_cloud_item is not None and self.point_cloud_item.scene() is not None
+            )
+        except RuntimeError:
+            has_scene = False
+        if has_scene:
             self.scene.removeItem(self.point_cloud_item)
         self.point_cloud_item = None
 
@@ -917,9 +948,21 @@ class CalibrationWidget(QWidget):
             return
 
         K = np.array(self.camerainfo_msg.k).reshape(3, 3)
+        dist_coeffs = (
+            np.array(self.camerainfo_msg.d) if hasattr(self.camerainfo_msg, "d") else np.zeros(7)
+        )
         rvec, _ = cv2.Rodrigues(self.extrinsics[:3, :3])
         tvec = self.extrinsics[:3, 3]
-        points_proj_cv, _ = cv2.projectPoints(self.points_xyz, rvec, tvec, K, None)
+
+        if self._is_fisheye_camera():
+            dist_coeffs = self._ensure_fisheye_dist_coeffs(dist_coeffs)
+            points_xyz_proc = np.ascontiguousarray(self.points_xyz).reshape(-1, 1, 3)
+            points_proj_cv, _ = cv2.fisheye.projectPoints(
+                points_xyz_proc, rvec, tvec, K, dist_coeffs
+            )
+        else:
+            points_proj_cv, _ = cv2.projectPoints(self.points_xyz, rvec, tvec, K, None)
+        
         points_proj_cv = points_proj_cv.reshape(-1, 2)
         points_cam = (self.extrinsics[:3, :3] @ self.points_xyz.T).T + tvec
         z_cam = points_cam[:, 2]
@@ -976,7 +1019,14 @@ class CalibrationWidget(QWidget):
             self.second_lidar_transform = transform
 
         # Remove existing second point cloud
-        if self.second_point_cloud_item is not None and self.second_point_cloud_item.scene():
+        try:
+            has_scene = (
+                self.second_point_cloud_item is not None
+                and self.second_point_cloud_item.scene() is not None
+            )
+        except RuntimeError:
+            has_scene = False
+        if has_scene:
             self.scene.removeItem(self.second_point_cloud_item)
         self.second_point_cloud_item = None
 
@@ -1000,9 +1050,21 @@ class CalibrationWidget(QWidget):
 
         # Project using master LiDAR to camera transform
         K = np.array(self.camerainfo_msg.k).reshape(3, 3)
+        dist_coeffs = (
+            np.array(self.camerainfo_msg.d) if hasattr(self.camerainfo_msg, "d") else np.zeros(7)
+        )
         rvec, _ = cv2.Rodrigues(self.extrinsics[:3, :3])
         tvec = self.extrinsics[:3, 3]
-        points_proj_cv, _ = cv2.projectPoints(transformed_points, rvec, tvec, K, None)
+
+        if self._is_fisheye_camera():
+            dist_coeffs = self._ensure_fisheye_dist_coeffs(dist_coeffs)
+            transformed_points_proc = np.ascontiguousarray(transformed_points).reshape(-1, 1, 3)
+            points_proj_cv, _ = cv2.fisheye.projectPoints(
+                transformed_points_proc, rvec, tvec, K, dist_coeffs
+            )
+        else:
+            points_proj_cv, _ = cv2.projectPoints(transformed_points, rvec, tvec, K, None)
+                
         points_proj_cv = points_proj_cv.reshape(-1, 2)
 
         # Transform to camera coordinates to check visibility
@@ -1057,17 +1119,22 @@ class CalibrationWidget(QWidget):
         # Add master LiDAR to camera correspondences
         for p2d, corr_data in self.correspondences.items():
             p3d = corr_data["3d_mean"]
-            item_text = f"Cam ({p2d[0]:.1f}, {p2d[1]:.1f}) ↔ Master ({p3d[0]:.2f}, {p3d[1]:.2f}, {p3d[2]:.2f})"
+            # normalize key to a hashable type for storage in item data
+            p2d_key = tuple(p2d) if isinstance(p2d, (list, np.ndarray)) else p2d
+            item_text = f"Cam ({p2d_key[0]:.1f}, {p2d_key[1]:.1f}) ↔ Master ({p3d[0]:.2f}, {p3d[1]:.2f}, {p3d[2]:.2f})"
             item = QListWidgetItem(item_text)
-            item.setData(Qt.UserRole, ("master_cam", p2d))
+            item.setData(Qt.UserRole, ("master_cam", p2d_key))
             self.corr_list_widget.addItem(item)
 
         # Add LiDAR-to-LiDAR correspondences
         for second_3d, corr_data in self.lidar_to_lidar_correspondences.items():
             master_3d = corr_data["master_3d_mean"]
-            item_text = f"Second ({second_3d[0]:.2f}, {second_3d[1]:.2f}, {second_3d[2]:.2f}) ↔ Master ({master_3d[0]:.2f}, {master_3d[1]:.2f}, {master_3d[2]:.2f})"
+            second_key = (
+                tuple(second_3d) if isinstance(second_3d, (list, np.ndarray)) else second_3d
+            )
+            item_text = f"Second ({second_key[0]:.2f}, {second_key[1]:.2f}, {second_key[2]:.2f}) ↔ Master ({master_3d[0]:.2f}, {master_3d[1]:.2f}, {master_3d[2]:.2f})"
             item = QListWidgetItem(item_text)
-            item.setData(Qt.UserRole, ("lidar_lidar", second_3d))
+            item.setData(Qt.UserRole, ("lidar_lidar", second_key))
             self.corr_list_widget.addItem(item)
 
     def delete_correspondence(self):
@@ -1076,10 +1143,14 @@ class CalibrationWidget(QWidget):
             corr_data = current_item.data(Qt.UserRole)
             if corr_data[0] == "master_cam":
                 p2d_key = corr_data[1]
+                if isinstance(p2d_key, (list, np.ndarray)):
+                    p2d_key = tuple(p2d_key)
                 if p2d_key in self.correspondences:
                     del self.correspondences[p2d_key]
             elif corr_data[0] == "lidar_lidar":
                 second_3d_key = corr_data[1]
+                if isinstance(second_3d_key, (list, np.ndarray)):
+                    second_3d_key = tuple(second_3d_key)
                 if second_3d_key in self.lidar_to_lidar_correspondences:
                     del self.lidar_to_lidar_correspondences[second_3d_key]
             self.update_corr_list()
@@ -1098,6 +1169,8 @@ class CalibrationWidget(QWidget):
         if corr_data[0] == "master_cam":
             # Highlight master LiDAR to camera correspondence
             p2d_key = corr_data[1]
+            if isinstance(p2d_key, (list, np.ndarray)):
+                p2d_key = tuple(p2d_key)
             corr = self.correspondences.get(p2d_key)
             if not corr:
                 return
@@ -1212,9 +1285,16 @@ class CalibrationWidget(QWidget):
                 master_cam_corr, self.lidar_to_lidar_correspondences, K, pnp_flag, lsq_method
             )
         else:
+            dist_coeffs = (
+                np.array(self.camerainfo_msg.d) if hasattr(self.camerainfo_msg, "d") else np.zeros(7)
+            )
+
             # Single LiDAR calibration
             calib_corr = [(p2d, corr["3d_mean"]) for p2d, corr in self.correspondences.items()]
-            self.extrinsics = calibration.calibrate(calib_corr, K, pnp_flag, lsq_method)
+            self.extrinsics = calibration.calibrate(calib_corr, K, pnp_flag, lsq_method, 
+                                                    dist_coeffs=self._ensure_fisheye_dist_coeffs(dist_coeffs), 
+                                                    is_fisheye=self._is_fisheye_camera()
+            )
 
         self.progress_bar.setVisible(False)
         self.project_pointcloud()
