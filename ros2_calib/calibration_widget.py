@@ -276,7 +276,7 @@ class CalibrationWidget(QWidget):
         self.rectify_checkbox.setToolTip("Undistort the image using camera distortion parameters")
         # Only enable if distortion coefficients are available
         has_distortion = self.has_significant_distortion()
-        self.rectify_checkbox.setEnabled(has_distortion)
+        self.rectify_checkbox.setEnabled(bool(has_distortion))
         # Enable by default if distortion is detected
         if has_distortion:
             self.is_rectification_enabled = True
