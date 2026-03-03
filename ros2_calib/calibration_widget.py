@@ -919,7 +919,10 @@ class CalibrationWidget(QWidget):
         K = np.array(self.camerainfo_msg.k).reshape(3, 3)
         rvec, _ = cv2.Rodrigues(self.extrinsics[:3, :3])
         tvec = self.extrinsics[:3, 3]
-        points_proj_cv, _ = cv2.projectPoints(self.points_xyz, rvec, tvec, K, None)
+        # When rectification is disabled, apply distortion to projected points
+        # so they align with the raw (distorted) image
+        dist_coeffs = None if self.is_rectification_enabled else np.array(self.camerainfo_msg.d)
+        points_proj_cv, _ = cv2.projectPoints(self.points_xyz, rvec, tvec, K, dist_coeffs)
         points_proj_cv = points_proj_cv.reshape(-1, 2)
         points_cam = (self.extrinsics[:3, :3] @ self.points_xyz.T).T + tvec
         z_cam = points_cam[:, 2]
@@ -1002,7 +1005,10 @@ class CalibrationWidget(QWidget):
         K = np.array(self.camerainfo_msg.k).reshape(3, 3)
         rvec, _ = cv2.Rodrigues(self.extrinsics[:3, :3])
         tvec = self.extrinsics[:3, 3]
-        points_proj_cv, _ = cv2.projectPoints(transformed_points, rvec, tvec, K, None)
+        # When rectification is disabled, apply distortion to projected points
+        # so they align with the raw (distorted) image
+        dist_coeffs = None if self.is_rectification_enabled else np.array(self.camerainfo_msg.d)
+        points_proj_cv, _ = cv2.projectPoints(transformed_points, rvec, tvec, K, dist_coeffs)
         points_proj_cv = points_proj_cv.reshape(-1, 2)
 
         # Transform to camera coordinates to check visibility
