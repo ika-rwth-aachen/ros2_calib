@@ -202,7 +202,7 @@ class CalibrationWidget(QWidget):
         # Check if any distortion coefficient is significantly non-zero
         # Use a threshold to account for numerical precision
         threshold = 1e-6
-        return np.any(np.abs(dist_coeffs) > threshold)
+        return bool(np.any(np.abs(dist_coeffs) > threshold))
 
     def toggle_rectification(self, enabled):
         """Toggle image rectification on/off."""
